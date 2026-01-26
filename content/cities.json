@@ -1,0 +1,141 @@
+{
+  "city_types": [
+    {
+      "id": "harbor_city",
+      "name": "Hafenstadt",
+      "market_size": "large",
+      "lot_size_tons": 5,
+      "needs": {
+        "food": "high",
+        "raw": "normal",
+        "craft": "high",
+        "sea": "high",
+        "luxury": "normal",
+        "weapons": "normal"
+      },
+      "initial_stock_multiplier": 1.0,
+      "top_needs_goods": ["grain", "tools", "iron_ore"]
+    },
+    {
+      "id": "mining_city",
+      "name": "Bergstadt",
+      "market_size": "small",
+      "lot_size_tons": 2,
+      "needs": {
+        "food": "critical",
+        "raw": "high",
+        "craft": "normal",
+        "sea": "low",
+        "luxury": "irrelevant",
+        "weapons": "high"
+      },
+      "initial_stock_multiplier": 0.8,
+      "top_needs_goods": ["grain", "bread", "tools"]
+    },
+    {
+      "id": "farm_city",
+      "name": "Agrarstadt",
+      "market_size": "medium",
+      "lot_size_tons": 5,
+      "needs": {
+        "food": "high",
+        "raw": "normal",
+        "craft": "normal",
+        "sea": "low",
+        "luxury": "low",
+        "weapons": "low"
+      },
+      "initial_stock_multiplier": 1.1,
+      "top_needs_goods": ["salt", "tools", "rope"]
+    }
+  ],
+  "cities": [
+    {
+      "id": "ST_001",
+      "name": "Eisenhafen",
+      "city_type_id": "harbor_city",
+      "map_id": "world_01",
+      "pos": [320, 550],
+      "harbor_radius": 50
+    },
+    {
+      "id": "ST_002",
+      "name": "Graustein",
+      "city_type_id": "mining_city",
+      "map_id": "world_01",
+      "pos": [360, 150],
+      "harbor_radius": 45
+    },
+    {
+      "id": "ST_003",
+      "name": "Sonnfeld",
+      "city_type_id": "farm_city",
+      "map_id": "world_01",
+      "pos": [1360, 270],
+      "harbor_radius": 45
+    },
+    {
+      "id": "ST_004",
+      "name": "Hafenstadt",
+      "city_type_id": "mining_city",
+      "map_id": "world_02",
+      "pos": [320, 140],
+      "harbor_radius": 60
+    },
+    {
+      "id": "ST_005",
+      "name": "Neustadt",
+      "city_type_id": "harbor_city",
+      "map_id": "world_02",
+      "pos": [855, 500],
+      "harbor_radius": 55
+    },
+    {
+      "id": "ST_006",
+      "name": "Fernweh",
+      "city_type_id": "harbor_city",
+      "map_id": "world_03",
+      "pos": [855, 500],
+      "harbor_radius": 55
+    },
+    {
+      "id": "ST_007",
+      "name": "Natales",
+      "city_type_id": "harbor_city",
+      "map_id": "world_03",
+      "pos": [855, 500],
+      "harbor_radius": 55
+    },
+    {
+      "id": "ST_008",
+      "name": "Altbrauheim",
+      "city_type_id": "harbor_city",
+      "map_id": "world_03",
+      "pos": [855, 500],
+      "harbor_radius": 55
+    },
+    {
+      "id": "ST_009",
+      "name": "Wasserlauf",
+      "city_type_id": "harbor_city",
+      "map_id": "world_03",
+      "pos": [855, 500],
+      "harbor_radius": 55
+    },
+    {
+      "id": "ST_010",
+      "name": "Schneehausen",
+      "city_type_id": "harbor_city",
+      "map_id": "world_03",
+      "pos": [855, 500],
+      "harbor_radius": 55
+    },{
+      "id": "ST_011",
+      "name": "XXX",
+      "city_type_id": "harbor_city",
+      "map_id": "world_03",
+      "pos": [855, 500],
+      "harbor_radius": 55
+    }
+  ]
+}

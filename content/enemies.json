@@ -1,0 +1,210 @@
+{
+  "enemies": [
+    {
+      "id": "pirate_sloop",
+      "name": "Pirate Sloop",
+      "stats": {
+        "hull_hp": 120,
+        "crew_max": 35,
+        "armor": 2,
+        "cannon_slots": 4,
+        "basic_attack_dmg": 14,
+        "speed_px_s": 170.0
+      },
+      "ai": { "tags": ["pirate", "cannon", "fast"] },
+      "loot": {
+        "gold": { "base": 18, "mult": 0.10 },
+        "xp":   { "base": 10, "mult": 0.07 },
+        "cargo": [
+          { "good_id": "rum",       "min_tons": 0.5, "max_tons": 2.0, "chance": 1 },
+          { "good_id": "cloth",     "min_tons": 0.4, "max_tons": 1.6, "chance": 1 },
+          { "good_id": "gunpowder", "min_tons": 0.2, "max_tons": 0.9, "chance": 1 }
+        ]
+      },
+      "visual": {
+        "sprite": "assets/ships/enemies/pirate_sloop.png",
+        "scale": 1.0,
+        "offset": [0, 0],
+        "size": [220, 140],
+        "flip_x": true
+      }
+    },
+
+    {
+      "id": "pirate_brig",
+      "name": "Pirate Brig",
+      "stats": {
+        "hull_hp": 180,
+        "crew_max": 55,
+        "armor": 3,
+        "cannon_slots": 6,
+        "basic_attack_dmg": 18,
+        "speed_px_s": 155.0
+      },
+      "ai": { "tags": ["pirate", "cannon", "balanced"] },
+      "loot": {
+        "gold": { "base": 28, "mult": 0.12 },
+        "xp":   { "base": 16, "mult": 0.08 },
+        "cargo": [
+          { "good_id": "rum",       "min_tons": 0.8, "max_tons": 2.6, "chance": 1 },
+          { "good_id": "cloth",     "min_tons": 0.6, "max_tons": 2.0, "chance": 1 },
+          { "good_id": "gunpowder", "min_tons": 0.3, "max_tons": 1.2, "chance": 1 }
+        ]
+      },
+      "visual": {
+        "sprite": "assets/ships/enemies/pirate_brig.png",
+        "scale": 1.0,
+        "offset": [0, 0],
+        "size": [220, 140],
+        "flip_x": true
+      }
+    },
+
+    {
+      "id": "pirate_frigate",
+      "name": "Pirate Frigate",
+      "stats": {
+        "hull_hp": 260,
+        "crew_max": 85,
+        "armor": 5,
+        "cannon_slots": 10,
+        "basic_attack_dmg": 24,
+        "speed_px_s": 145.0
+      },
+      "ai": { "tags": ["pirate", "cannon", "elite"] },
+      "loot": {
+        "gold": { "base": 45, "mult": 0.14 },
+        "xp":   { "base": 24, "mult": 0.10 },
+        "cargo": [
+          { "good_id": "gunpowder", "min_tons": 0.6, "max_tons": 2.0, "chance": 1 },
+          { "good_id": "rum",       "min_tons": 1.0, "max_tons": 3.0, "chance": 1 },
+          { "good_id": "cloth",     "min_tons": 0.8, "max_tons": 2.6, "chance": 1 }
+        ]
+      },
+      "visual": {
+        "sprite": "assets/ships/enemies/pirate_frigate.png",
+        "scale": 1.0,
+        "offset": [0, 0],
+        "size": [220, 140],
+        "flip_x": true
+      }
+    },
+
+    {
+      "id": "sea_wolf",
+      "name": "Sea Wolf",
+      "stats": {
+        "hull_hp": 140,
+        "crew_max": 30,
+        "armor": 1,
+        "cannon_slots": 0,
+        "basic_attack_dmg": 16,
+        "speed_px_s": 165.0
+      },
+      "ai": { "tags": ["beast", "boarding", "fast"] },
+      "loot": {
+        "gold": { "base": 10, "mult": 0.06 },
+        "xp":   { "base": 14, "mult": 0.08 },
+        "cargo": [
+          { "good_id": "rum",      "min_tons": 0.5, "max_tons": 2.0, "chance": 0.60 },
+          { "good_id": "tobacco",  "min_tons": 0.3, "max_tons": 1.2, "chance": 0.35 },
+          { "good_id": "rope",     "min_tons": 0.4, "max_tons": 1.5, "chance": 0.30 }
+        ]
+
+      },
+      "visual": {
+        "sprite": "assets/ships/enemies/sea_wolf.png",
+        "scale": 1.0,
+        "offset": [0, 0],
+        "size": [220, 140],
+        "flip_x": true
+      }
+    },
+
+    {
+      "id": "eel",
+      "name": "Giant Eel",
+      "stats": {
+        "hull_hp": 110,
+        "crew_max": 22,
+        "armor": 0,
+        "cannon_slots": 0,
+        "basic_attack_dmg": 14,
+        "speed_px_s": 175.0
+      },
+      "ai": { "tags": ["beast", "boarding", "glass"] },
+      "loot": {
+        "gold": { "base": 8, "mult": 0.05 },
+        "xp":   { "base": 12, "mult": 0.07 },
+        "cargo": [
+          { "good_id": "fish", "min_tons": 0.5, "max_tons": 2.0, "chance": 0.70 }
+        ]
+      },
+      "visual": {
+        "sprite": "assets/ships/enemies/eel.png",
+        "scale": 1.0,
+        "offset": [0, 0],
+        "size": [220, 140],
+        "flip_x": true
+      }
+    },
+
+    {
+      "id": "abyss_fish",
+      "name": "Abyss Fish",
+      "stats": {
+        "hull_hp": 190,
+        "crew_max": 45,
+        "armor": 2,
+        "cannon_slots": 0,
+        "basic_attack_dmg": 20,
+        "speed_px_s": 150.0
+      },
+      "ai": { "tags": ["beast", "boarding", "deep"] },
+      "loot": {
+        "gold": { "base": 14, "mult": 0.07 },
+        "xp":   { "base": 18, "mult": 0.09 },
+        "cargo": [
+          { "good_id": "fish",   "min_tons": 0.8, "max_tons": 3.0, "chance": 0.65 },
+          { "good_id": "pearls", "min_tons": 0.1, "max_tons": 0.6, "chance": 0.18 }
+        ]
+      },
+      "visual": {
+        "sprite": "assets/ships/enemies/abyss_fish.png",
+        "scale": 1.0,
+        "offset": [0, 0],
+        "size": [220, 140],
+        "flip_x": true
+      }
+    },
+
+    {
+      "id": "krakenling",
+      "name": "Krakenling",
+      "stats": {
+        "hull_hp": 240,
+        "crew_max": 60,
+        "armor": 3,
+        "cannon_slots": 0,
+        "basic_attack_dmg": 26,
+        "speed_px_s": 135.0
+      },
+      "ai": { "tags": ["beast", "boarding", "deep", "elite"] },
+      "loot": {
+        "gold": { "base": 22, "mult": 0.09 },
+        "xp":   { "base": 26, "mult": 0.10 },
+        "cargo": [
+          { "good_id": "fish",   "min_tons": 1.0, "max_tons": 3.4, "chance": 0.70 },
+          { "good_id": "pearls", "min_tons": 0.2, "max_tons": 0.9, "chance": 0.28 }
+        ]
+      },
+      "visual": {
+        "sprite": "assets/ships/enemies/krakenling.png",
+        "scale": 1.0,
+        "offset": [0, 0],
+        "size": [220, 140],
+        "flip_x": true
+      }
+    }
+  ]
+}

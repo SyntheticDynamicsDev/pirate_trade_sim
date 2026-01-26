@@ -1,0 +1,63 @@
+{
+  "goods": [
+
+    {"id": "grain", "name": "Getreide", "category": "food", "base_price": 8, "spoil_rate_per_day": 0.01, "target_stock": 150},
+    {"id": "bread", "name": "Zwieback", "category": "food", "base_price": 28, "spoil_rate_per_day": 0.005, "target_stock": 90},
+    {"id": "beans", "name": "Bohnen", "category": "food", "base_price": 18, "spoil_rate_per_day": 0.004, "target_stock": 110},
+    {"id": "potatoe", "name": "Kartoffeln", "category": "food", "base_price": 22, "spoil_rate_per_day": 0.003, "target_stock": 110},
+    {"id": "dried_fish", "name": "Trockenfisch", "category": "food", "base_price": 35, "spoil_rate_per_day": 0.003, "target_stock": 80},
+    {"id": "fish", "name": "Fisch", "category": "food", "base_price": 45, "spoil_rate_per_day": 0.050, "target_stock": 75},
+    {"id": "meat", "name": "Fleisch", "category": "food", "base_price": 60, "spoil_rate_per_day": 0.030, "target_stock": 70},
+    {"id": "salted_meat", "name": "Pökelfleisch", "category": "food", "base_price": 55, "spoil_rate_per_day": 0.002, "target_stock": 70},
+    {"id": "cheese", "name": "Käse", "category": "food", "base_price": 62, "spoil_rate_per_day": 0.010, "target_stock": 55},
+    {"id": "apple", "name": "Äpfel", "category": "food", "base_price": 26, "spoil_rate_per_day": 0.040, "target_stock": 90},
+    {"id": "oil", "name": "Öl", "category": "food", "base_price": 85, "spoil_rate_per_day": 0.001, "target_stock": 45},
+    {"id": "beer", "name": "Bier", "category": "food", "base_price": 48, "spoil_rate_per_day": 0.002, "target_stock": 60},
+    {"id": "rum", "name": "Rum", "category": "food", "base_price": 120, "spoil_rate_per_day": 0.0, "target_stock": 40},
+
+
+    {"id": "salt", "name": "Salz", "category": "raw", "base_price": 38, "spoil_rate_per_day": 0.0, "target_stock": 160},
+    {"id": "iron_ore", "name": "Eisenerz", "category": "raw", "base_price": 48, "spoil_rate_per_day": 0.0, "target_stock": 120},
+    {"id": "coal", "name": "Kohle", "category": "raw", "base_price": 42, "spoil_rate_per_day": 0.0, "target_stock": 140},
+    {"id": "timber", "name": "Holz", "category": "raw", "base_price": 32, "spoil_rate_per_day": 0.0, "target_stock": 200},
+    {"id": "hemp", "name": "Hanf", "category": "raw", "base_price": 44, "spoil_rate_per_day": 0.0, "target_stock": 120},
+    {"id": "flax", "name": "Flachs", "category": "raw", "base_price": 46, "spoil_rate_per_day": 0.0, "target_stock": 110},
+    {"id": "cotton", "name": "Baumwolle", "category": "raw", "base_price": 60, "spoil_rate_per_day": 0.0, "target_stock": 95},
+    {"id": "hides", "name": "Felle", "category": "raw", "base_price": 90, "spoil_rate_per_day": 0.0, "target_stock": 55},
+    {"id": "clay", "name": "Ton", "category": "raw", "base_price": 24, "spoil_rate_per_day": 0.0, "target_stock": 150},
+    {"id": "stone", "name": "Stein", "category": "raw", "base_price": 18, "spoil_rate_per_day": 0.0, "target_stock": 220},
+    {"id": "sulfur", "name": "Schwefel", "category": "raw", "base_price": 95, "spoil_rate_per_day": 0.0, "target_stock": 70},
+
+
+    {"id": "tools", "name": "Werkzeuge", "category": "craft", "base_price": 180, "spoil_rate_per_day": 0.0, "target_stock": 60},
+    {"id": "bricks", "name": "Ziegel", "category": "craft", "base_price": 55, "spoil_rate_per_day": 0.0, "target_stock": 120},
+    {"id": "paper", "name": "Papier", "category": "craft", "base_price": 120, "spoil_rate_per_day": 0.0, "target_stock": 55},
+    {"id": "barrels", "name": "Fässer", "category": "craft", "base_price": 160, "spoil_rate_per_day": 0.0, "target_stock": 50},
+    {"id": "nails", "name": "Nägel", "category": "craft", "base_price": 110, "spoil_rate_per_day": 0.0, "target_stock": 80},
+    {"id": "iron_ingots", "name": "Eisenbarren", "category": "craft", "base_price": 120, "spoil_rate_per_day": 0.0, "target_stock": 90},
+    {"id": "steel", "name": "Stahl", "category": "craft", "base_price": 220, "spoil_rate_per_day": 0.0, "target_stock": 50},
+    {"id": "medicine", "name": "Heilmittel", "category": "craft", "base_price": 260, "spoil_rate_per_day": 0.004, "target_stock": 25},
+
+
+    {"id": "rope", "name": "Seile", "category": "sea", "base_price": 190, "spoil_rate_per_day": 0.0, "target_stock": 100},
+    {"id": "sailcloth", "name": "Segeltuch", "category": "sea", "base_price": 210, "spoil_rate_per_day": 0.0, "target_stock": 90},
+    {"id": "tar", "name": "Teer", "category": "sea", "base_price": 130, "spoil_rate_per_day": 0.0, "target_stock": 80},
+    {"id": "planks", "name": "Planken", "category": "sea", "base_price": 95, "spoil_rate_per_day": 0.0, "target_stock": 140},
+    {"id": "canvas", "name": "Leinwand", "category": "sea", "base_price": 160, "spoil_rate_per_day": 0.0, "target_stock": 70},
+    {"id": "charts", "name": "Seekarten", "category": "sea", "base_price": 520, "spoil_rate_per_day": 0.0, "target_stock": 10},
+
+
+    {"id": "painting", "name": "Gemälde", "category": "luxury", "base_price": 1800, "spoil_rate_per_day": 0.0, "target_stock": 15},
+    {"id": "wine", "name": "Wein", "category": "luxury", "base_price": 320, "spoil_rate_per_day": 0.001, "target_stock": 25},
+    {"id": "silk", "name": "Seide", "category": "luxury", "base_price": 980, "spoil_rate_per_day": 0.0, "target_stock": 12},
+    {"id": "jewelry", "name": "Schmuck", "category": "luxury", "base_price": 2400, "spoil_rate_per_day": 0.0, "target_stock": 8},
+    {"id": "porcelain", "name": "Porzellan", "category": "luxury", "base_price": 1350, "spoil_rate_per_day": 0.0, "target_stock": 10},
+    {"id": "spices", "name": "Gewürze", "category": "luxury", "base_price": 780, "spoil_rate_per_day": 0.0, "target_stock": 14},
+    {"id": "tobacco", "name": "Tabak", "category": "luxury", "base_price": 540, "spoil_rate_per_day": 0.0, "target_stock": 16},
+    {"id": "coffee", "name": "Kaffee", "category": "luxury", "base_price": 460, "spoil_rate_per_day": 0.0, "target_stock": 18},
+    {"id": "tea", "name": "Tee", "category": "luxury", "base_price": 520, "spoil_rate_per_day": 0.0, "target_stock": 16},
+    {"id": "sugar", "name": "Zucker", "category": "luxury", "base_price": 240, "spoil_rate_per_day": 0.0, "target_stock": 35},
+    {"id": "perfume", "name": "Parfüm", "category": "luxury", "base_price": 1600, "spoil_rate_per_day": 0.0, "target_stock": 8},
+    {"id": "books", "name": "Bücher", "category": "luxury", "base_price": 620, "spoil_rate_per_day": 0.0, "target_stock": 14}
+  ]
+}
