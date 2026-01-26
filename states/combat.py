@@ -708,7 +708,10 @@ class CombatState:
 
         # Apply money + XP
         self.ctx.player.money += gold
-        self.ctx.player.xp += xp
+        self.ctx.player.money += gold
+        from core.progression import add_xp
+        add_xp(self.ctx.player, xp)
+
 
         # Apply cargo (respect capacity)
         cap = float(getattr(self.ctx.player.ship, "capacity_tons", 0.0))

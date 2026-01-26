@@ -11,6 +11,8 @@ import pygame
 from data.loader import load_content
 from world.model import World, City, Ship, Player, CargoHold, CargoLot
 from economy.market import CityMarketState
+from core.progression import xp_to_level, cap_xp
+
 
 
 SAVE_VERSION = 1
@@ -47,19 +49,20 @@ def load_save_metadata(path: str = DEFAULT_SAVE_PATH) -> Optional[dict]:
     hours = int(sec // 3600)
     minutes = int((sec % 3600) // 60)
 
-    xp = int(player.get("xp", 0))
-
-    # Level existiert noch nicht als eigenes System -> wir leiten es ab
-    # (stabiler Default, bis du ein echtes Level-System einführst)
-    level = 1 + (xp // 1000)
+    # XP + Level
+    xp = cap_xp(int(player.get("xp", 0)))
+    lvl, cur, need = xp_to_level(xp)
 
     return {
         "day": day,
         "time_str": f"{hours:02d}:{minutes:02d}",
         "xp": xp,
-        "level": level,
+        "level": lvl,
+        "xp_cur": cur,
+        "xp_need": need,
         "enc_meter": float(data.get("enc_meter", 0.0)),
     }
+
 
 def _ensure_save_dir(path: str) -> None:
     d = os.path.dirname(path)
@@ -143,7 +146,7 @@ def save_game(ctx: Any, path: str = DEFAULT_SAVE_PATH) -> None:
 
         "player": {
             "money": int(player.money),
-            "xp": int(getattr(player, "xp", 0)),
+            "xp": cap_xp(int(getattr(player, "xp", 0))),
             "crew_hp": int(getattr(player, "crew_hp", 0)),
             "docked_city_id": getattr(player, "docked_city_id", None),
             "houses": sorted(list(getattr(player, "houses", set()) or [])),
@@ -299,6 +302,7 @@ def load_game(ctx: Any, path: str = DEFAULT_SAVE_PATH) -> bool:
         ship=ship,
     )
     player.xp = int(pd.get("xp", 0))
+    player.xp = cap_xp(player.xp)
     player.crew_hp = int(pd.get("crew_hp", max(0, ship.crew_max)))
     player.docked_city_id = pd.get("docked_city_id", None)
     player.cargo = cargo

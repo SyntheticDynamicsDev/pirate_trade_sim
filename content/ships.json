@@ -5,7 +5,7 @@
       "name": "Schaluppe",
       "capacity_tons": 80.0,
       "speed_px_s": 260.0,
-      "hull_hp": 120,
+      "hull_hp": 520,
       "crew_max": 12,
       "crew_required": 6,
       "upkeep_per_day": 10,
@@ -17,7 +17,7 @@
       "pirate_target_mult": 0.85,
       "armor": 0,
       "cannon_slots": 2,
-      "basic_attack_dmg": 20,
+      "basic_attack_dmg": 50,
 
       
       "sprite": "assets/ships/Schaluppe.png",

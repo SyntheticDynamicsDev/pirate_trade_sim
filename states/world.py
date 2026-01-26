@@ -7,6 +7,8 @@ from settings import SCREEN_W, SCREEN_H
 import math
 from settings import TIME_SCALE_PAUSE, TIME_SCALE_1X, TIME_SCALE_2X, TIME_SCALE_4X
 from core.water_fx import WakeSystem   
+from core.progression import xp_to_level
+
 
 @dataclass
 class WorldMapState:
@@ -94,6 +96,39 @@ class WorldMapState:
 
         self._ui_t = 0.0
         self._baro_marker_cache = {}  # (w,h,alpha_bucket) -> Surface
+
+        # --- XP Panel (unten links, kompakt) ---
+        self._xp_panel_raw = None
+        self._xp_panel = None
+        self._xp_panel_rect = pygame.Rect(0, 0, 0, 0)
+
+        xp_path = os.path.join("assets", "ui", "xp.png")
+        try:
+            if os.path.exists(xp_path):
+                self._xp_panel_raw = pygame.image.load(xp_path).convert_alpha()
+
+                # KOMPAKTER: weniger breit, etwas höher
+                panel_w = 220
+                panel_h = 84
+                self._xp_panel = pygame.transform.smoothscale(
+                    self._xp_panel_raw, (panel_w, panel_h)
+                )
+                # XP Fill (passt exakt auf xp.png)
+                self._xp_fill_raw = None
+                self._xp_fill = None
+
+                fill_path = os.path.join("assets", "ui", "xp_fill.png")
+                if os.path.exists(fill_path):
+                    self._xp_fill_raw = pygame.image.load(fill_path).convert_alpha()
+                    self._xp_fill = pygame.transform.smoothscale(self._xp_fill_raw, (panel_w, panel_h))
+
+                # Platzierung: unten links (screen-size nicht aus ctx nehmen)
+                margin = 18
+                self._xp_panel_rect = self._xp_panel.get_rect(topleft=(margin, margin))  # temp
+
+        except Exception:
+            self._xp_panel_raw = None
+            self._xp_panel = None
 
 
         # --- Encounter Config: map_id -> color -> pool + chance ---
@@ -678,8 +713,6 @@ class WorldMapState:
         x, y = int(ship.pos[0]), int(ship.pos[1])
 
         er, eg, eb, *_ = self._map_enc.get_at((x, y))
-        dbg = self.font.render(f"ENC@ship: ({er},{eg},{eb})", True, (255,255,255))
-        screen.blit(dbg, (20, 80))
 
         self._render_barometer(screen)
 
@@ -772,39 +805,85 @@ class WorldMapState:
 
         return surf
 
-
-    def _xp_to_level(self, xp: int) -> tuple[int, int, int]:
-        # v1: simple quadratic-ish curve
-        level = 1
-        need = 100
-        remaining = xp
-        while remaining >= need and level < 99:
-            remaining -= need
-            level += 1
-            need = int(100 + (level - 1) * 35)
-        return level, remaining, need
-
     def _draw_xp_bar(self, screen) -> None:
         xp = int(getattr(self.ctx.player, "xp", 0))
-        lvl, cur, need = self._xp_to_level(xp)
+        lvl, cur, need = xp_to_level(xp)
         frac = 0.0 if need <= 0 else max(0.0, min(1.0, cur / need))
 
+        # MAX-Level immer voll anzeigen
+        if lvl >= 10:
+            frac = 1.0
+
+        # Panel-Variante (wenn xp.png vorhanden)
+        if getattr(self, "_xp_panel", None) is not None:
+            sw, sh = screen.get_size()
+            margin = 18
+
+            r = self._xp_panel.get_rect(bottomleft=(margin, sh - margin))
+            self._xp_panel_rect = r
+
+            # 1) Panel zuerst (Frame/Background)
+            screen.blit(self._xp_panel, r.topleft)
+
+            # 2) Fill als Maske über dem Panel, NUR im Balken-Fenster
+            if getattr(self, "_xp_fill", None) is not None:
+                # Fenster innerhalb des Panels (diese Werte ggf. minimal anpassen)
+                fill_pad_left = 22
+                fill_pad_right = 22
+                fill_y = 34        # Y-Offset im Panel
+                fill_h = 16        # Höhe der Leiste
+
+                fill_rect = pygame.Rect(
+                    r.x + fill_pad_left,
+                    r.y + fill_y,
+                    r.width - fill_pad_left - fill_pad_right,
+                    fill_h
+                )
+
+                # 0% -> 10% sichtbar, 100% -> 100%
+                visible = 0.10 + 0.90 * frac
+                vis_w = int(fill_rect.width * visible)
+                vis_w = max(1, min(fill_rect.width, vis_w))
+
+                # Quelle: xp_fill ist exakt wie Panel skaliert -> gleicher Koordinatenraum
+                src_x = fill_pad_left
+                src_y = fill_y
+                src_area = pygame.Rect(src_x, src_y, vis_w, fill_h)
+
+                screen.blit(self._xp_fill, fill_rect.topleft, src_area)
+
+            # 3) Texte
+            lv_txt = self.font.render(f"Lv {lvl}/10", True, (235, 235, 235))
+            val_txt = self.font.render("MAX" if lvl >= 10 else f"{cur}/{need}", True, (235, 235, 235))
+
+            top_y = r.y + 10
+            left_x = r.x + 28
+            right_x = r.right - 28
+
+            screen.blit(lv_txt, (left_x, top_y))
+            screen.blit(val_txt, (right_x - val_txt.get_width(), top_y))
+
+            return
+
+
+        # Fallback (falls xp.png fehlt): primitives UI
         w, h = 260, 14
-        x, y = 18, 18 + 34  # unterhalb deines Top-HUD, ggf. anpassen
+        x, y = 18, 18 + 34
 
-        # container
-        pygame.draw.rect(screen, (20, 22, 30), (x-10, y-28, w+20, 48), border_radius=10)
-        pygame.draw.rect(screen, (8, 9, 12), (x-10, y-28, w+20, 48), 2, border_radius=10)
+        pygame.draw.rect(screen, (20, 22, 30), (x - 10, y - 28, w + 20, 48), border_radius=10)
+        pygame.draw.rect(screen, (8, 9, 12), (x - 10, y - 28, w + 20, 48), 2, border_radius=10)
 
-        label = self.font.render(f"XP  Lv {lvl}", True, (230, 230, 230))
-        screen.blit(label, (x, y-22))
+        label = self.font.render(f"XP  Lv {lvl}/10", True, (230, 230, 230))
+        screen.blit(label, (x, y - 22))
 
         pygame.draw.rect(screen, (50, 55, 70), (x, y, w, h), border_radius=6)
         pygame.draw.rect(screen, (90, 170, 110), (x, y, int(w * frac), h), border_radius=6)
         pygame.draw.rect(screen, (10, 10, 12), (x, y, w, h), 2, border_radius=6)
 
-        txt = self.font.render(f"{cur}/{need}", True, (230, 230, 230))
+        txt = self.font.render("MAX" if lvl >= 10 else f"{cur}/{need}", True, (230, 230, 230))
         screen.blit(txt, (x + w - 82, y - 2))
+
+
 
     def _get_ship_sprite(self, ship_type: str) -> pygame.Surface | None:
         # Robust: falls on_enter() nicht gelaufen ist
