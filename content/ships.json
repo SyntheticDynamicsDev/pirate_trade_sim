@@ -3,9 +3,8 @@
     {
       "id": "sloop",
       "name": "Schaluppe",
+
       "capacity_tons": 80.0,
-      "speed_px_s": 260.0,
-      "hull_hp": 520,
       "crew_max": 12,
       "crew_required": 6,
       "upkeep_per_day": 10,
@@ -15,22 +14,41 @@
       "shallow_water_ok": true,
       "cargo_protection": 0.10,
       "pirate_target_mult": 0.85,
-      "armor": 0,
       "cannon_slots": 2,
-      "basic_attack_dmg": 50,
+      "speed_px_s": 100,
 
-      
-      "sprite": "assets/ships/Schaluppe.png",
-      "sprite_size": [260, 160],
-      "sprite_scale": 1.0,
-      "sprite_offset": [0, 0]
+      "combat": {
+        "hp_max": 180,
+        "armor_physical": 12.0,
+        "armor_abyssal": 0.0,
+
+        "damage_min": 14,
+        "damage_max": 22,
+        "damage_type": "physical",
+        "penetration": 0.0,
+
+        "crit_chance": 0.08,
+        "crit_multiplier": 1.5,
+
+        "initiative_base": 1.10,
+        "difficulty_tier": 1,
+        "threat_level": 2
+      },
+
+      "visual": {
+        "sprite": "assets/ships/Schaluppe.png",
+        "scale": 1.0,
+        "offset": [0, 0],
+        "size": [260, 160],
+        "flip_x": false
+      }
     },
+
     {
       "id": "holk",
       "name": "Holk",
+
       "capacity_tons": 150.0,
-      "speed_px_s": 215.0,
-      "hull_hp": 180,
       "crew_max": 22,
       "crew_required": 12,
       "upkeep_per_day": 18,
@@ -40,21 +58,41 @@
       "shallow_water_ok": false,
       "cargo_protection": 0.12,
       "pirate_target_mult": 1.05,
-      "armor": 1,
       "cannon_slots": 4,
-      "basic_attack_dmg": 14,
+      "speed_px_s": 60,
 
-      "sprite": "assets/ships/Holk.png",
-      "sprite_size": [260, 160],
-      "sprite_scale": 1.0,
-      "sprite_offset": [0, 0]
+      "combat": {
+        "hp_max": 240,
+        "armor_physical": 24.0,
+        "armor_abyssal": 0.0,
+
+        "damage_min": 13,
+        "damage_max": 19,
+        "damage_type": "physical",
+        "penetration": 0.0,
+
+        "crit_chance": 0.08,
+        "crit_multiplier": 1.5,
+
+        "initiative_base": 1.02,
+        "difficulty_tier": 1,
+        "threat_level": 3
+      },
+
+      "visual": {
+        "sprite": "assets/ships/Holk.png",
+        "scale": 1.0,
+        "offset": [0, 0],
+        "size": [260, 160],
+        "flip_x": false
+      }
     },
+
     {
       "id": "carrack",
       "name": "Karake",
+
       "capacity_tons": 240.0,
-      "speed_px_s": 195.0,
-      "hull_hp": 240,
       "crew_max": 34,
       "crew_required": 18,
       "upkeep_per_day": 28,
@@ -64,21 +102,41 @@
       "shallow_water_ok": false,
       "cargo_protection": 0.18,
       "pirate_target_mult": 1.10,
-      "armor": 2,
       "cannon_slots": 8,
-      "basic_attack_dmg": 20,
+      "speed_px_s": 60,
 
-      "sprite": "assets/ships/Karake.png",
-      "sprite_size": [260, 160],
-      "sprite_scale": 1.0,
-      "sprite_offset": [0, 0]
+      "combat": {
+        "hp_max": 300,
+        "armor_physical": 36.0,
+        "armor_abyssal": 6.0,
+
+        "damage_min": 15,
+        "damage_max": 23,
+        "damage_type": "physical",
+        "penetration": 2.0,
+
+        "crit_chance": 0.08,
+        "crit_multiplier": 1.5,
+
+        "initiative_base": 0.98,
+        "difficulty_tier": 2,
+        "threat_level": 4
+      },
+
+      "visual": {
+        "sprite": "assets/ships/Karake.png",
+        "scale": 1.0,
+        "offset": [0, 0],
+        "size": [260, 160],
+        "flip_x": false
+      }
     },
+
     {
       "id": "fluyt",
       "name": "Fleute",
+
       "capacity_tons": 300.0,
-      "speed_px_s": 185.0,
-      "hull_hp": 210,
       "crew_max": 28,
       "crew_required": 14,
       "upkeep_per_day": 24,
@@ -88,21 +146,41 @@
       "shallow_water_ok": false,
       "cargo_protection": 0.22,
       "pirate_target_mult": 0.95,
-      "armor": 1,
       "cannon_slots": 4,
-      "basic_attack_dmg": 16,
+      "speed_px_s": 60,
 
-      "sprite": "assets/ships/Fleute.png",
-      "sprite_size": [260, 160],
-      "sprite_scale": 1.0,
-      "sprite_offset": [0, 0]
+      "combat": {
+        "hp_max": 270,
+        "armor_physical": 30.0,
+        "armor_abyssal": 4.0,
+
+        "damage_min": 14,
+        "damage_max": 20,
+        "damage_type": "physical",
+        "penetration": 0.0,
+
+        "crit_chance": 0.08,
+        "crit_multiplier": 1.5,
+
+        "initiative_base": 0.96,
+        "difficulty_tier": 2,
+        "threat_level": 3
+      },
+
+      "visual": {
+        "sprite": "assets/ships/Fleute.png",
+        "scale": 1.0,
+        "offset": [0, 0],
+        "size": [260, 160],
+        "flip_x": false
+      }
     },
+
     {
       "id": "line",
       "name": "Linienschiff",
+
       "capacity_tons": 340.0,
-      "speed_px_s": 165.0,
-      "hull_hp": 380,
       "crew_max": 60,
       "crew_required": 40,
       "upkeep_per_day": 60,
@@ -112,14 +190,34 @@
       "shallow_water_ok": false,
       "cargo_protection": 0.30,
       "pirate_target_mult": 1.35,
-      "armor": 4,
       "cannon_slots": 18,
-      "basic_attack_dmg": 34,
-      
-      "sprite": "assets/ships/Linienschiff.png",
-      "sprite_size": [260, 160],
-      "sprite_scale": 1.0,
-      "sprite_offset": [0, 0]
+      "speed_px_s": 60,
+
+      "combat": {
+        "hp_max": 420,
+        "armor_physical": 54.0,
+        "armor_abyssal": 10.0,
+
+        "damage_min": 18,
+        "damage_max": 28,
+        "damage_type": "physical",
+        "penetration": 4.0,
+
+        "crit_chance": 0.08,
+        "crit_multiplier": 1.5,
+
+        "initiative_base": 0.90,
+        "difficulty_tier": 3,
+        "threat_level": 6
+      },
+
+      "visual": {
+        "sprite": "assets/ships/Linienschiff.png",
+        "scale": 1.0,
+        "offset": [0, 0],
+        "size": [260, 160],
+        "flip_x": false
+      }
     }
   ]
 }

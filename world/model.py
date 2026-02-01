@@ -19,33 +19,35 @@ class City:
 
 @dataclass
 class Ship:
-    # Pflichtfelder (ohne Default) müssen zuerst kommen
-    type_id: str
+    # Identität
+    id: str
     name: str
-    pos: Vec2
-    speed: float                 # max speed in px/s
-    capacity_tons: float
 
-    # --- Physikzustand (Defaults) ---
-    vel: Vec2 = (0.0, 0.0)        # px/s
-    heading: float = 0.0          # rad
-    ang_vel: float = 0.0          # rad/s
-    throttle: float = 0.0         # -1..+1
+    # --- World / Movement ---
+    pos: tuple[float, float] = (0.0, 0.0)
+    vel: tuple[float, float] = (0.0, 0.0)
+    heading: float = 0.0
+    ang_vel: float = 0.0
+    throttle: float = 0.0
 
-    # --- Stats / Rest (Defaults) ---
-    hull_hp: int = 0
-    crew_max: int = 0
-    crew_required: int = 0
-    upkeep_per_day: int = 0
+    speed: float = 0.0          # max speed
     turn_rate: float = 1.0
     accel: float = 1.0
     draft_m: float = 0.0
     shallow_water_ok: bool = False
+
+    # --- Economy / Meta ---
+    capacity_tons: float = 0.0
     cargo_protection: float = 0.0
     pirate_target_mult: float = 1.0
-    armor: int = 0
+    upkeep_per_day: int = 0
+    crew_max: int = 0
+    crew_required: int = 0
     cannon_slots: int = 0
-    basic_attack_dmg: int = 0
+
+    # --- Combat (Runtime-Zustand, NICHT Definition) ---
+    hp: int = 0
+    hp_max: int = 0
         
 @dataclass
 class CargoLot:

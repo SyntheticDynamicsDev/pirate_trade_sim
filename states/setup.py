@@ -88,31 +88,30 @@ class NewGameSetupState:
 
         # setup.py (in on_enter nach: ship_def = self.ctx.content.ships[ship_type_id])
 
+        sd = ship_def
+        c = sd.combat
+
         ship = Ship(
-            type_id=ship_def.id,
-            name=ship_def.name,
-            pos=(0, 0),
+            id=sd.id,
+            name=sd.name,
 
-            # max speed
-            speed=float(ship_def.speed_px_s),
+            # World
+            speed=sd.speed_px_s,
+            turn_rate=sd.turn_rate,
+            accel=sd.accel,
+            draft_m=sd.draft_m,
+            shallow_water_ok=sd.shallow_water_ok,
+            capacity_tons=sd.capacity_tons,
+            cargo_protection=sd.cargo_protection,
+            pirate_target_mult=sd.pirate_target_mult,
+            upkeep_per_day=sd.upkeep_per_day,
+            crew_max=sd.crew_max,
+            crew_required=sd.crew_required,
+            cannon_slots=sd.cannon_slots,
 
-            capacity_tons=float(ship_def.capacity_tons),
-
-            # aus ships.json (jetzt im ShipDef vorhanden)
-            turn_rate=float(getattr(ship_def, "turn_rate", 1.0)),
-            accel=float(getattr(ship_def, "accel", 1.0)),
-
-            hull_hp=int(getattr(ship_def, "hull_hp", 0)),
-            crew_max=int(getattr(ship_def, "crew_max", 0)),
-            crew_required=int(getattr(ship_def, "crew_required", 0)),
-            upkeep_per_day=int(getattr(ship_def, "upkeep_per_day", 0)),
-            draft_m=float(getattr(ship_def, "draft_m", 0.0)),
-            shallow_water_ok=bool(getattr(ship_def, "shallow_water_ok", False)),
-            cargo_protection=float(getattr(ship_def, "cargo_protection", 0.0)),
-            pirate_target_mult=float(getattr(ship_def, "pirate_target_mult", 1.0)),
-            armor=int(getattr(ship_def, "armor", 0)),
-            cannon_slots=int(getattr(ship_def, "cannon_slots", 0)),
-            basic_attack_dmg=int(getattr(ship_def, "basic_attack_dmg", 0)),
+            # Combat runtime
+            hp=c.hp_max,
+            hp_max=c.hp_max,
         )
 
         # Robust: Attribut nachträglich setzen

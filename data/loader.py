@@ -71,35 +71,42 @@ class GoodDef:
     spoil_rate_per_day: float
     target_stock: float
 
+from dataclasses import dataclass
+from typing import Tuple
+
+@dataclass(frozen=True)
+class VisualDef:
+    sprite: str
+    size: Tuple[int, int] = (260, 160)
+    scale: float = 1.0
+    offset: Tuple[int, int] = (0, 0)
+    flip_x: bool = False
+
+from dataclasses import dataclass
+from typing import Optional
 
 @dataclass(frozen=True)
 class ShipDef:
     id: str
     name: str
+
+    # world/economy
     capacity_tons: float
     speed_px_s: float
+    crew_max: int
+    crew_required: int
+    upkeep_per_day: int
+    turn_rate: float
+    accel: float
+    draft_m: float
+    shallow_water_ok: bool
+    cargo_protection: float
+    pirate_target_mult: float
+    cannon_slots: int
 
-    # optional / zusätzliche Tuning-Werte (aus ships.json)
-    turn_rate: float = 1.0
-    accel: float = 1.0
-    hull_hp: int = 0
-    crew_max: int = 0
-    crew_required: int = 0
-    upkeep_per_day: int = 0
-    draft_m: float = 0.0
-    shallow_water_ok: bool = False
-    cargo_protection: float = 0.0
-    pirate_target_mult: float = 1.0
-    armor: int = 0
-    cannon_slots: int = 0
-    basic_attack_dmg: int = 0
-
-    # --- NEW: Visuals (aus ships.json) ---
-    sprite: Optional[str] = None
-    sprite_scale: float = 1.0
-    sprite_offset: Tuple[int, int] = (0, 0)
-    sprite_size: Tuple[int, int] = (260, 160)
-
+    # NEW: combat + visual (wie enemies)
+    combat: CombatStats
+    visual: VisualDef
 
 
 @dataclass(frozen=True)
@@ -167,8 +174,66 @@ def load_content(content_dir: str = "content") -> Content:
 
     goods = {g["id"]: GoodDef(**g) for g in goods_raw}
 
-    shipdef_fields = {f.name for f in fields(ShipDef)}
-    ships = {s["id"]: ShipDef(**{k: v for k, v in s.items() if k in shipdef_fields}) for s in ships_raw}
+    ships: Dict[str, ShipDef] = {}
+    for s in ships_raw:
+        if "combat" not in s or s["combat"] is None:
+            raise ValueError(f"Ship '{s.get('id','?')}' missing required 'combat' block.")
+        if "visual" not in s or s["visual"] is None:
+            raise ValueError(f"Ship '{s.get('id','?')}' missing required 'visual' block.")
+
+        c = s["combat"]
+        v = s["visual"]
+
+        combat = CombatStats(
+            hp_max=int(c["hp_max"]),
+            armor_physical=float(c.get("armor_physical", 0.0)),
+            armor_abyssal=float(c.get("armor_abyssal", 0.0)),
+
+            damage_min=int(c["damage_min"]),
+            damage_max=int(c["damage_max"]),
+            damage_type=str(c.get("damage_type", "physical")),
+            penetration=float(c.get("penetration", 0.0)),
+
+            crit_chance=float(c.get("crit_chance", 0.0)),
+            crit_multiplier=float(c.get("crit_multiplier", 1.5)),
+
+            initiative_base=float(c.get("initiative_base", 1.0)),
+
+            difficulty_tier=int(c.get("difficulty_tier", 1)),
+            threat_level=int(c.get("threat_level", 1)),
+        )
+
+        visual = VisualDef(
+            sprite=str(v["sprite"]),
+            size=tuple(v.get("size", (260, 160))),
+            scale=float(v.get("scale", 1.0)),
+            offset=tuple(v.get("offset", (0, 0))),
+            flip_x=bool(v.get("flip_x", False)),
+        )
+
+        sd = ShipDef(
+            id=str(s["id"]),
+            name=str(s.get("name", s["id"])),
+
+            capacity_tons=float(s["capacity_tons"]),
+            speed_px_s=float(s["speed_px_s"]),
+            crew_max=int(s["crew_max"]),
+            crew_required=int(s["crew_required"]),
+            upkeep_per_day=int(s["upkeep_per_day"]),
+            turn_rate=float(s["turn_rate"]),
+            accel=float(s["accel"]),
+            draft_m=float(s["draft_m"]),
+            shallow_water_ok=bool(s["shallow_water_ok"]),
+            cargo_protection=float(s["cargo_protection"]),
+            pirate_target_mult=float(s["pirate_target_mult"]),
+            cannon_slots=int(s["cannon_slots"]),
+
+            combat=combat,
+            visual=visual,
+        )
+
+        ships[sd.id] = sd
+
 
     city_types = {ct["id"]: CityTypeDef(**ct) for ct in city_types_raw}
 

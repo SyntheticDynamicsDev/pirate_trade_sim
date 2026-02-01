@@ -750,7 +750,7 @@ class WorldMapState:
         self._wake.render(screen)
 
         # Draw ship (Sprite)
-        ship_name = self.ctx.content.ships[player.ship.type_id].name  # "Schaluppe"
+        ship_name = self.ctx.content.ships[player.ship.id].name  # "Schaluppe"
         sprite = self._get_ship_sprite(ship_name)
 
 

@@ -48,15 +48,8 @@ class CombatantRuntime:
     difficulty_tier: int
     threat_level: int
 
-    # Turn-based (falls du später wieder CDs brauchst)
-    cannon_cd: float = 0.0
-    repair_cd: float = 0.0
-
     # Status effects
     status: dict = field(default_factory=dict)
-
-
-
 
 @dataclass
 class _FloatText:
@@ -95,31 +88,11 @@ class CombatEngine:
         self.finished: bool = False
         self.outcome: Optional[str] = None  # "win" | "lose" | "flee"
 
-        # Tuning
-        self.CANNON_RELOAD = 3.2
-        self.REPAIR_CD = 7.0
-
         #Reward
         self.rewards = {"gold": 0, "xp": 0, "cargo": []}  # cargo: list[tuple[good_id, tons]]
 
-        # --- Status tuning (v1.3) ---
-        self.LEAK_DPS = 2.0
-        self.LEAK_DUR = 8.0
-        self.LEAK_CHANCE_ON_HIT = 0.18
-
-        self.SHAKEN_DUR = 6.0
-        self.SHAKEN_RELOAD_MULT = 1.35  # 35% slower reload
-
-
-        self.GRAZE_BAND = 0.10  # wie nah am hit-chance threshold -> graze
-        self.CRIT_CHANCE = 0.08
-
-        # --- Visual Event Queue (for VFX/UI feedback) ---
-        self._events: list[dict] = []
-
         # --- AI state ---
         self.turn = 1
-        self.awaiting_player = True
         self._events: list[dict] = []
 
         # Runden-Tracking (future-proof)
@@ -127,14 +100,6 @@ class CombatEngine:
         self.turn_owner: str = "player"   # "player" | "enemy"
         self._turn_queue: list[str] = []
         self.last_initiative: dict = {"player": 0.0, "enemy": 0.0}
-
-
-    def push_event(self, ev: dict) -> None:
-        self._events.append(ev)
-        # keep it bounded
-        if len(self._events) > 30:
-            self._events = self._events[-30:]
-
 
     def pop_event(self) -> Optional[dict]:
         if not self._events:
@@ -147,38 +112,27 @@ class CombatEngine:
             self._events = []
         self._events.append(ev)
 
-
-    def player_fire(self) -> None:
-        if self.finished or not self.awaiting_player:
-            return
-
-        res = self._fire(attacker=self.p, defender=self.e, mult=1.0)
-
-        # Event für VFX
-        self.push_event({
-            "type": "fire",
-            "side": "player",
-            "result": res.get("result", "hit"),
-            "hull": int(res.get("hull", 0)),
-            "applied": list(res.get("applied", [])),
-            "hit_chance": float(res.get("hit_chance", 0.0)),
-        })
-
-        self.add_log(f"You fire: -{int(res.get('hull', 0))} hull.")
-        self._after_player_action()
-
-    def player_attack(self) -> bool:
+    def player_fire(self) -> bool:
+        # Unified turn-based API (keine Legacy await/turn mehr)
         if self.finished or self.turn_owner != "player":
             return False
 
         res = self._fire(attacker=self.p, defender=self.e, mult=1.0)
-        self.add_event({"type": "attack", "side": "player", "res": res})
+        self.add_event({"type": "fire", "side": "player", "result": res.get("result"), "hull": int(res.get("hull", 0)), "applied": list(res.get("applied", []))})
+        self.add_log(f"You fire: -{int(res.get('hull', 0))} hull.")
 
         if self._check_finish():
+            self._stop_turns()
             return True
-        self._stop_turns()
+
         self._advance_turn()
         return True
+
+
+    def player_attack(self) -> bool:
+        # Backward compatibility: route to player_fire()
+        return self.player_fire()
+
 
     def player_repair(self) -> bool:
         if self.finished or self.turn_owner != "player":
@@ -196,8 +150,6 @@ class CombatEngine:
         self._advance_turn()
         return True
 
-
-
     def player_flee(self) -> bool:
         if self.finished or self.turn_owner != "player":
             return False
@@ -214,8 +166,6 @@ class CombatEngine:
         # miss flee kostet turn
         self._advance_turn()
         return False
-
-
 
     def _compute_rewards(self) -> dict:
         # sauber am neuen Modell orientiert
@@ -244,28 +194,23 @@ class CombatEngine:
         if self.finished:
             return
 
-        sim_dt = float(dt)
-
-        # statuses (DOT etc.)
-        self._tick_statuses(self.p, sim_dt)
-        self._tick_statuses(self.e, sim_dt)
-
         # check for death after DOT
         if self._check_finish():
             self._stop_turns()
             return
+
         # Turn-based round init
         if self.round_index == 0 or not self._turn_queue:
             self._start_new_round()
 
-        # enemy auto-turn
+        # enemy auto-turn (max 1 action per frame)
         if self.turn_owner == "enemy":
             self._enemy_take_turn()
+            return
 
     def _stop_turns(self) -> None:
         self._turn_queue = []
         self.turn_owner = "none"
-
 
     def _apply_status(self, target: CombatantRuntime, key: str, payload: dict) -> bool:
         """
@@ -291,7 +236,6 @@ class CombatEngine:
     def _remove_status(self, target: CombatantRuntime, key: str) -> None:
         if key in target.status:
             del target.status[key]
-
 
     def _tick_statuses(self, target: CombatantRuntime, sim_dt: float) -> None:
         if not target.status:
@@ -327,26 +271,9 @@ class CombatEngine:
         for k in to_remove:
             self._remove_status(target, k)
 
-    def _reload_mult_for(self, who: CombatantRuntime, base_reload_mult: float) -> float:
-        mult = float(base_reload_mult)
-        if "shaken" in who.status:
-            mult *= float(who.status["shaken"].get("reload_mult", self.SHAKEN_RELOAD_MULT))
-        return max(0.2, mult)
-
-    def _enemy_ai(self, sim_dt: float) -> None:
-        return
 
     # ---- Player actions ----
 
-    def _hit_chance(self, attacker: CombatantRuntime, defender: CombatantRuntime) -> float:
-        # Turn-based, keine Distanz/Speed: stabile Trefferchance
-        base = 0.78
-
-        # Optional: mini Modulation nach "threat_level" (rein meta, kein legacy stat)
-        # attacker tl leicht offensiver, defender tl leicht evasiver
-        base += max(-0.04, min(0.04, (attacker.threat_level - defender.threat_level) * 0.01))
-
-        return max(0.15, min(0.95, base))
 
     def _roll_initiative(self, base: float) -> float:
         # kleine, faire Varianz pro Runde (±8%)
@@ -370,64 +297,58 @@ class CombatEngine:
 
 
     def _fire(self, attacker: CombatantRuntime, defender: CombatantRuntime, mult: float) -> dict:
-        applied = []
-
-        hc = self._hit_chance(attacker, defender)
-        roll = random.random()
-
-        graze = (hc - roll) < self.GRAZE_BAND
-        is_hit = roll < hc
-
-        if not is_hit:
-            return {"result": "miss", "hull": 0, "hit_chance": hc, "applied": []}
-
-        # --- roll base damage ---
+        """
+        Feste Damage-Auflösung (verbindliche Reihenfolge, keine Sonderfälle):
+        1) Damage-Roll [min..max]
+        2) Crit-Check -> damage *= crit_multiplier
+        3) Damage-Typ bestimmen
+        4) Ziel-Armor bestimmen
+        5) Penetration abziehen (Armor kann negativ werden)
+        6) Final Damage = HP-Verlust
+        """
+        # 1) Damage roll
         dmin = int(attacker.damage_min)
         dmax = int(attacker.damage_max)
         if dmax < dmin:
             dmax = dmin
-        raw = random.randint(dmin, dmax)
+        base = random.randint(dmin, dmax)
 
-        # graze reduces damage
-        if graze:
-            raw = max(1, int(round(raw * 0.60)))
-
-        # --- crit (uses attacker stats) ---
+        # 2) Crit check
         cc = float(attacker.crit_chance)
         cm = float(attacker.crit_multiplier)
-        is_crit = (not graze) and (random.random() < max(0.0, min(1.0, cc)))
+        is_crit = (random.random() < max(0.0, min(1.0, cc)))
         if is_crit:
-            raw = max(1, int(round(raw * max(1.0, cm))))
+            base = int(round(base * max(1.0, cm)))
 
-        # --- choose armor by damage type ---
-        dtype = attacker.damage_type
+        # 3) Damage type
+        dtype = str(attacker.damage_type)
+
+        # 4) Target armor by type
         armor = float(defender.armor_physical) if dtype == "physical" else float(defender.armor_abyssal)
 
-        # --- penetration (can exceed 100) ---
+        # 5) Penetration subtract (armor may become negative)
         pen = float(attacker.penetration)
-        effective_armor = armor - pen  # can be negative
+        effective_armor = armor - pen
 
-        # armor% -> multiplier:
-        # positive armor reduces, negative increases
-        # cap reduction to 95% and bonus to 300% overall
-        reduction = max(-200.0, min(95.0, effective_armor))
-        mult_armor = 1.0 - (reduction / 100.0)
-        mult_armor = max(0.05, min(3.0, mult_armor))
+        # 6) Convert armor% into multiplier (positive reduces, negative amplifies)
+        # Beispiel: 30 armor -> 0.70 dmg, -20 armor -> 1.20 dmg
+        dmg_mult_from_armor = 1.0 - (effective_armor / 100.0)
 
-        dmg = max(1, int(round(raw * mult * mult_armor)))
-        defender.hp = max(0, defender.hp - dmg)
+        # final damage (mult bleibt als hook, aber keine Sonderfälle)
+        dmg = int(round(base * float(mult) * dmg_mult_from_armor))
+        if dmg < 1:
+            dmg = 1
 
-        # status: leak chance on hit
-        if random.random() < self.LEAK_CHANCE_ON_HIT:
-            is_new = self._apply_status(defender, "leak", {"dur": self.LEAK_DUR, "dps": self.LEAK_DPS})
-            applied.append("leak_new" if is_new else "leak_refresh")
+        defender.hp = max(0, int(defender.hp) - dmg)
 
-        result_tag = "graze" if graze else ("crit" if is_crit else "hit")
         return {
-            "result": result_tag,
-            "hull": dmg,  # UI-Key lassen wir in Phase 1 so, ist aber jetzt "damage"
-            "hit_chance": hc,
-            "applied": applied,
+            "result": "crit" if is_crit else "hit",
+            "hull": dmg,  # UI-Key beibehalten
+            "applied": [],
+            "damage_type": dtype,
+            "armor": armor,
+            "penetration": pen,
+            "effective_armor": effective_armor,
         }
 
 
@@ -436,31 +357,24 @@ class CombatEngine:
             return
         target.hp = min(target.hp_max, target.hp + max(1, amount_base))
 
-
-
-    def _after_player_action(self) -> None:
-        if self._check_finish():
-            return
-        self.awaiting_player = False
-        self._enemy_take_turn()
-        if self._check_finish():
-            return
-        self.turn += 1
-        self.awaiting_player = True
-
     def _enemy_take_turn(self) -> None:
-        # Wenn Kampf vorbei, abbrechen
         if self.finished:
             return
 
-        # Enemy entscheidet: vorerst immer Attack (Phase 2 minimal)
         res = self._fire(attacker=self.e, defender=self.p, mult=1.0)
-        self.add_event({"type": "attack", "side": "enemy", "res": res})
+        self.add_event({
+            "type": "fire",
+            "side": "enemy",
+            "result": res.get("result"),
+            "hull": int(res.get("hull", 0)),
+            "applied": list(res.get("applied", [])),
+        })
+
 
         if self._check_finish():
+            self._stop_turns()
             return
-        self._stop_turns()
-        # Zug weiterreichen
+
         self._advance_turn()
 
     def _advance_turn(self) -> None:
@@ -496,8 +410,6 @@ class CombatEngine:
 
         return False
 
-
-
 # -----------------------------
 # State
 # -----------------------------
@@ -530,65 +442,47 @@ class CombatState:
         if not hasattr(self, "_sprite_cache"):
             self._sprite_cache = {}
 
-        # Build player combatant from current ship + shipdef
+        # --- Build player combatant from NEW ShipDef.combat ---
         ship = self.ctx.player.ship
-        shipdef = self.ctx.content.ships.get(ship.type_id)
+        shipdef = self.ctx.content.ships.get(ship.id)
+        if shipdef is None:
+            raise KeyError(f"ShipDef not found for type_id='{ship.id}'")
 
-        def _armor_lvl_to_percent(lvl: int) -> float:
-            # shipdef.armor war bisher ein kleiner int -> interpretieren als "armor level"
-            return float(max(0, min(95, lvl * 12)))
+        # NEW: shipdef.combat ist verpflichtend
+        c = getattr(shipdef, "combat", None)
+        if c is None:
+            raise ValueError(f"ShipDef '{shipdef.id}' missing required .combat stats (ships.json/loader mismatch).")
 
-        def _dmg_min_max(base: int) -> tuple[int, int]:
-            dmin = max(1, int(round(base * 0.8)))
-            dmax = max(dmin, int(round(base * 1.2)))
-            return dmin, dmax
-
-        def _initiative_from_speed(speed: float) -> float:
-            # map ~135..175 => 0.9..1.1 (stabil)
-            s_min, s_max = 135.0, 175.0
-            t = 0.0 if s_max == s_min else (speed - s_min) / (s_max - s_min)
-            t = max(0.0, min(1.0, t))
-            return round(0.9 + t * 0.2, 2)
-
-        ship = self.ctx.player.ship
-        shipdef = self.ctx.content.ships.get(ship.type_id)
-
-        hp_max = int(getattr(shipdef, "hull_hp", 120) or 120)
-        hp_cur = int(getattr(ship, "hull_hp", 0) or 0)
-        hp_cur = int(getattr(ship, "hull_hp", 0) or 0)
+        # HP: current HP comes from runtime ship, max from definition
+        # (Falls du dein Ship-Runtime Feld schon umbenannt hast, ist 'hp' korrekt;
+        #  wir lassen hull_hp als Fallback, damit du nicht sofort abstürzt, falls irgendwo noch Altstände sind.)
+        hp_cur = int(getattr(ship, "hp", getattr(ship, "hull_hp", 0)) or 0)
+        hp_max = int(getattr(c, "hp_max", 1) or 1)
         if hp_cur <= 0:
             hp_cur = hp_max
-        # falls aktueller Hull größer ist als Def-Max, Max hochziehen (keine UI-Lüge)
         hp_max = max(hp_max, hp_cur)
-
-
-
-        armor_lvl = int(getattr(shipdef, "armor", 0) or 0)
-        base_dmg = int(getattr(shipdef, "basic_attack_dmg", 10) or 10)
-        dmin, dmax = _dmg_min_max(base_dmg)
-
-        spd = float(getattr(shipdef, "speed_px_s", getattr(ship, "speed", 155.0)) or 155.0)
 
         self._player = CombatantRuntime(
             name="You",
+
             hp=hp_cur,
             hp_max=hp_max,
-            armor_physical=_armor_lvl_to_percent(armor_lvl),
-            armor_abyssal=0.0,
 
-            damage_min=dmin,
-            damage_max=dmax,
-            damage_type="physical",
-            penetration=0.0,
-            crit_chance=0.08,
-            crit_multiplier=1.5,
+            armor_physical=float(getattr(c, "armor_physical", 0.0)),
+            armor_abyssal=float(getattr(c, "armor_abyssal", 0.0)),
 
-            initiative_base=_initiative_from_speed(spd),
+            damage_min=int(getattr(c, "damage_min", 1)),
+            damage_max=int(getattr(c, "damage_max", 1)),
+            damage_type=str(getattr(c, "damage_type", "physical")),
+            penetration=float(getattr(c, "penetration", 0.0)),
+            crit_chance=float(getattr(c, "crit_chance", 0.0)),
+            crit_multiplier=float(getattr(c, "crit_multiplier", 1.5)),
 
-            difficulty_tier=1,
-            threat_level=1,
+            initiative_base=float(getattr(c, "initiative_base", 1.0)),
+
+            difficulty_tier=int(getattr(c, "difficulty_tier", 1)),
+            threat_level=int(getattr(c, "threat_level", 1)),
         )
-
 
         ed = self.ctx.content.enemies.get(self.enemy_id)
         # kein fallback mehr: enemy_id muss existieren
@@ -624,7 +518,6 @@ class CombatState:
         # --- Result overlay state ---
         self._result_showing = False
         self._result_timer = 0.0
-        self._result_text_lines = []
         self._result_applied = False
 
         # --- Icon cache (goods) ---
@@ -646,16 +539,20 @@ class CombatState:
         # background selection (by enemy tags if available)
         self._bg = self._load_combat_background()
 
-        # --- Visuals: datengetrieben ---
-        ship_def = self.ctx.content.ships[self.ctx.player.ship.type_id]
+        # --- Visuals: NEW schema via ship_def.visual ---
+        ship_def = self.ctx.content.ships[self.ctx.player.ship.id]
         enemy_def = self.ctx.content.enemies[self.enemy_id]
 
+        v = getattr(ship_def, "visual", None)
+        if v is None:
+            raise ValueError(f"ShipDef '{ship_def.id}' missing required .visual (ships.json/loader mismatch).")
+
         self._player_vis = {
-            "sprite": ship_def.sprite,
-            "size": tuple(ship_def.sprite_size),
-            "scale": float(ship_def.sprite_scale),
-            "offset": tuple(ship_def.sprite_offset),
-            "flip_x": False,  # Player schaut nach rechts
+            "sprite": str(getattr(v, "sprite")),
+            "size": tuple(getattr(v, "size", (260, 160))),
+            "scale": float(getattr(v, "scale", 1.0)),
+            "offset": tuple(getattr(v, "offset", (0, 0))),
+            "flip_x": bool(getattr(v, "flip_x", False)),
         }
 
         # --- Music: override world playlist with fight track ---
@@ -673,11 +570,22 @@ class CombatState:
         self._spr_player = self._load_sprite_spec(self._player_vis)
         self._spr_enemy  = self._load_sprite_spec(self._enemy_vis)
 
-        # --- Transition reveal from ctx (reverse of TransitionState) ---
         self._reveal = getattr(self.ctx, "transition_reveal", None)
         if self._reveal:
             # consume it so it doesn't apply repeatedly
             self.ctx.transition_reveal = None
+
+            # --- sanitize reveal so it cannot lock the screen black ---
+            try:
+                self._reveal["t"] = 0.0  # reset time
+                dur = float(self._reveal.get("duration", 0.85))
+                # clamp duration to sane range (prevents "permanent black")
+                dur = max(0.25, min(0.95, dur))
+                self._reveal["duration"] = dur
+            except Exception:
+                self._reveal = None
+
+
 
         from settings import MASTER_LIFE_ICON
         self._ml_icon = None
@@ -690,7 +598,7 @@ class CombatState:
 
     def _resolve_player_visual(self) -> dict:
         ship = self.ctx.player.ship
-        shipdef = self.ctx.content.ships.get(ship.type_id)
+        shipdef = self.ctx.content.ships.get(ship.id)
 
         # wir versuchen mehrere mögliche Feldnamen (damit es zu deinem bestehenden Content passt)
         cand = [
@@ -847,6 +755,17 @@ class CombatState:
         self._good_icon_cache[good_id] = surf
         return surf
 
+    def _get_ship_hp(self) -> int:
+        ship = self.ctx.player.ship
+        return int(getattr(ship, "hp", getattr(ship, "hull_hp", 0)) or 0)
+
+    def _set_ship_hp(self, value: int) -> None:
+        ship = self.ctx.player.ship
+        if hasattr(ship, "hp"):
+            ship.hp = int(value)
+        else:
+            # Fallback nur falls irgendwo noch Alt-Model im Umlauf ist
+            ship.hp = int(value)
 
     def on_exit(self) -> None:
         # --- Music: restore previous (world) playlist ---
@@ -855,13 +774,11 @@ class CombatState:
         except Exception:
             pass
         # Persist back to world model
-        ship = self.ctx.player.ship
-        ship.hull_hp = int(self._player.hp)
+        self._set_ship_hp(int(self._player.hp))
 
     def _apply_outcome(self) -> None:
         # Persist HPs (redundant zu on_exit ist ok)
-        ship = self.ctx.player.ship
-        ship.hull_hp = int(self._player.hp)
+        self._set_ship_hp(int(self._player.hp))
 
         if self.engine.outcome == "lose":
             # 1) Masterleben abziehen
@@ -873,7 +790,7 @@ class CombatState:
             if p.master_lives <= 0:
                 # Hull bleibt 0, Game endet
                 try:
-                    self.ctx.player.ship.hull_hp = 0
+                    self._set_ship_hp(0)
                 except Exception:
                     pass
                 return
@@ -881,9 +798,10 @@ class CombatState:
             # 3) Sonst: Hull wiederherstellen und zurück zur Welt (kein Game Over)
             # Wir nutzen das maximale Hull aus CombatRuntime
             try:
-                self.ctx.player.ship.hull_hp = int(getattr(self._player, "hp_max", 1))
+                self._set_ship_hp(int(getattr(self._player, "hp_max", 1)))
+
             except Exception:
-                self.ctx.player.ship.hull_hp = max(1, int(getattr(self.ctx.player.ship, "hull_hp", 1)))
+                self._set_ship_hp(int(getattr(self._player, "hp_max", 1)))
 
             # optional: kleines “respawn” Verhalten kann später ergänzt werden
             return
@@ -898,7 +816,6 @@ class CombatState:
         cargo_drops = rewards.get("cargo", [])
 
         # Apply money + XP
-        self.ctx.player.money += gold
         self.ctx.player.money += gold
         from core.progression import add_xp
         add_xp(self.ctx.player, xp)
@@ -949,8 +866,23 @@ class CombatState:
 
 
         self.game.replace(TransitionState(kind="to_world", snapshot=snap, focus=None))
+    # combat.py | class CombatState
 
+    def _build_rewards_from_enemydef(self, ed) -> dict:
+        loot = getattr(ed, "loot", None)
+        if loot is None:
+            return {"gold": 0, "xp": 0, "cargo": []}
 
+        # einfache Skalierung über threat/difficulty
+        tl = int(getattr(ed.combat, "threat_level", 1))
+        dt = int(getattr(ed.combat, "difficulty_tier", 1))
+        mult_factor = 1.0 + 0.15 * (tl - 1) + 0.10 * (dt - 1)
+
+        gold = int(round(int(getattr(loot, "gold_base", 0)) + int(getattr(loot, "gold_base", 0)) * float(getattr(loot, "gold_mult", 0.0)) * mult_factor))
+        xp   = int(round(int(getattr(loot, "xp_base", 0))   + int(getattr(loot, "xp_base", 0))   * float(getattr(loot, "xp_mult", 0.0))   * mult_factor))
+
+        cargo = self._roll_enemy_cargo_loot(ed)
+        return {"gold": max(0, gold), "xp": max(0, xp), "cargo": cargo}
 
 
     def _roll_enemy_cargo_loot(self, ed) -> list:
@@ -973,6 +905,7 @@ class CombatState:
 
     def handle_event(self, event) -> None:
 
+        # Wenn Ergebnis-Overlay aktiv, nur Exit-Input erlauben
         if getattr(self, "_result_showing", False):
             if event.type == pygame.KEYDOWN and event.key in (pygame.K_RETURN, pygame.K_SPACE, pygame.K_ESCAPE):
                 self._leave_combat()
@@ -980,19 +913,18 @@ class CombatState:
                 self._leave_combat()
             return
 
+        # Block input wenn nicht Player-Turn
+        if getattr(self, "engine", None) and getattr(self.engine, "turn_owner", None) != "player":
+            # optional: trotzdem Pause erlauben
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
+                self.ctx.clock.paused = not self.ctx.clock.paused
+            return
+
 
         #Buttons
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_SPACE:
                 self.ctx.clock.paused = not self.ctx.clock.paused
-            
-            #Action buttons
-            elif event.key == pygame.K_1:
-                self.engine.player_fire()
-            elif event.key == pygame.K_2:
-                self.engine.player_repair()
-            elif event.key == pygame.K_4:
-                self.engine.player_flee()
 
         #Mouse
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
@@ -1021,18 +953,67 @@ class CombatState:
             self.ctx.clock.paused = True
 
     def update(self, dt: float) -> None:
+        # 1) Engine tick (Turn-Logik + Events)
         if getattr(self, "engine", None) is None:
+            return
+
+        #bobbing
+        self._t = float(getattr(self, "_t", 0.0)) + float(dt)
+
+        # Wenn Ergebnis schon angezeigt wird, keine weiteren Turns/Enemy-Aktionen ausführen
+        if getattr(self, "_result_showing", False):
+            # Reveal weiter ticken lassen, damit es nicht schwarz bleibt
+            if getattr(self, "_reveal", None):
+                self._reveal["t"] = float(self._reveal.get("t", 0.0)) + float(dt)
+                dur = float(self._reveal.get("duration", 0.85))
+                if self._reveal["t"] >= dur:
+                    self._reveal = None
             return
 
         self.engine.update(dt)
 
-        # Reveal-Fade-Out ticken lassen, sonst bleibt Overlay schwarz
+        # VFX events konsumieren (damit Treffer/Repair etc. sichtbar werden)
+        while True:
+            ev = self.engine.pop_event()
+            if not ev:
+                break
+            self._handle_vfx_event(ev)
+
+        if self.engine.finished and not getattr(self, "_result_showing", False):
+            # Payload/Rewards nur einmal bauen
+            if getattr(self.engine, "outcome", None) == "win":
+                ed = self.ctx.content.enemies[self.enemy_id]
+                self._pending_rewards = self._build_rewards_from_enemydef(ed)
+
+                lines = []
+                gold = int(self._pending_rewards.get("gold", 0))
+                xp = int(self._pending_rewards.get("xp", 0))
+                cargo = self._pending_rewards.get("cargo", []) or []
+
+                if gold:
+                    lines.append(("gold", f"+{gold} Gold"))
+                if xp:
+                    lines.append(("xp", f"+{xp} XP"))
+                for gid, tons in cargo:
+                    lines.append(("cargo", f"+{tons:.2f} t {gid}", gid))
+
+                self._result_payload = {"title": "VICTORY", "lines": lines}
+
+            elif getattr(self.engine, "outcome", None) == "lose":
+                self._result_payload = {"title": "DEFEAT", "lines": [("cargo", "You lost the battle.")]}
+            else:
+                self._result_payload = {"title": "ESCAPED", "lines": [("cargo", "You fled successfully.")]}  # fallback
+
+            self._result_showing = True
+            self._result_timer = 0.0
+            self._result_applied = False
+
+        # 2) Reveal-Overlay Timer (sonst bleibt der Screen schwarz)
         if getattr(self, "_reveal", None):
             self._reveal["t"] = float(self._reveal.get("t", 0.0)) + float(dt)
             dur = float(self._reveal.get("duration", 0.85))
             if self._reveal["t"] >= dur:
                 self._reveal = None
-
 
     def _handle_vfx_event(self, ev: dict) -> None:
         et = ev.get("type")
@@ -1107,7 +1088,7 @@ class CombatState:
             add_float(f"+{amt}", src[0], src[1] - 40, (140, 240, 170))
 
         elif et == "flee":
-            ok = bool(ev.get("success", False))
+            ok = bool(ev.get("success", ev.get("ok", False)))
             add_float("ESCAPE!" if ok else "FAILED!", src[0], src[1] - 40, (200, 200, 240) if ok else (240, 140, 140))
 
 
@@ -1170,23 +1151,22 @@ class CombatState:
         self._draw_bar(screen, 60, 170, 620, 18, self._enemy.hp, self._enemy.hp_max, "Enemy HP")
 
         # Buttons
+        is_player_turn = (getattr(self.engine, "turn_owner", None) == "player")
+
         self._draw_button(
             screen, self.btn_fire, "Fire (1)",
-            self._player.cannon_cd <= 0.0,
-            subtext=f"CD: {self._player.cannon_cd:.1f}s",
-            cooldown=float(self._player.cannon_cd),
-            cooldown_max=float(self.engine.CANNON_RELOAD / max(0.2, self.engine._reload_mult_for(self._player, self.ctx.player_stats.reload_mult)))
+            is_player_turn
         )
 
         self._draw_button(
             screen, self.btn_repair, "Repair (2)",
-            self._player.repair_cd <= 0.0,
-            subtext=f"CD: {self._player.repair_cd:.1f}s",
-            cooldown=float(self._player.repair_cd),
-            cooldown_max=float(self.engine.REPAIR_CD)
+            is_player_turn and (self._player.hp < self._player.hp_max)
         )
 
-        self._draw_button(screen, self.btn_flee, "Flee (4)", True)
+        self._draw_button(
+            screen, self.btn_flee, "Flee (4)",
+            is_player_turn
+        )
 
         # Log
         y = 290
@@ -1512,7 +1492,8 @@ class CombatState:
         txt = self.font.render(f"{label}: {val}/{vmax}", True, (230, 230, 230))
         screen.blit(txt, (x, y - 20))
 
-    def _draw_button(self, screen, rect: pygame.Rect, text: str, enabled: bool, subtext: str = "", cooldown: float = 0.0, cooldown_max: float = 0.0):
+    def _draw_button(self, screen, rect: pygame.Rect, text: str, enabled: bool, subtext: str = ""):
+
         mx, my = pygame.mouse.get_pos()
         hover = rect.collidepoint(mx, my)
 
@@ -1536,24 +1517,3 @@ class CombatState:
         if subtext:
             st = self.font.render(subtext, True, (210, 210, 210) if enabled else (160, 160, 160))
             screen.blit(st, (rect.x + 12, rect.y + 28))
-
-        # cooldown pie (top-right)
-        if cooldown_max > 0.0 and cooldown > 0.0:
-            frac = max(0.0, min(1.0, cooldown / cooldown_max))
-            cx = rect.right - 18
-            cy = rect.y + 18
-            r = 12
-
-            # base circle
-            pygame.draw.circle(screen, (25, 28, 38), (cx, cy), r)
-            pygame.draw.circle(screen, (8, 9, 12), (cx, cy), r, 2)
-
-            # draw pie as polygon fan
-            steps = 20
-            ang0 = -math.pi / 2
-            ang1 = ang0 + (2 * math.pi * frac)
-            pts = [(cx, cy)]
-            for i in range(steps + 1):
-                a = ang0 + (ang1 - ang0) * (i / steps)
-                pts.append((cx + int(math.cos(a) * (r - 2)), cy + int(math.sin(a) * (r - 2))))
-            pygame.draw.polygon(screen, (120, 120, 140), pts)

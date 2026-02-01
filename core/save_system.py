@@ -156,31 +156,32 @@ def save_game(ctx: Any, path: str = DEFAULT_SAVE_PATH) -> None:
         },
 
         "ship": {
-            "type_id": str(ship.type_id),
-            "name": str(ship.name),
+            "id": ship.id,
+            "name": ship.name,
             "pos": list(ship.pos),
-            "vel": list(getattr(ship, "vel", (0.0, 0.0))),
-            "heading": float(getattr(ship, "heading", 0.0)),
-            "ang_vel": float(getattr(ship, "ang_vel", 0.0)),
-            "throttle": float(getattr(ship, "throttle", 0.0)),
+            "vel": list(ship.vel),
+            "heading": ship.heading,
+            "ang_vel": ship.ang_vel,
+            "throttle": ship.throttle,
 
-            # Stats / tuning
-            "speed": float(ship.speed),
-            "capacity_tons": float(ship.capacity_tons),
-            "hull_hp": int(getattr(ship, "hull_hp", 0)),
-            "crew_max": int(getattr(ship, "crew_max", 0)),
-            "crew_required": int(getattr(ship, "crew_required", 0)),
-            "upkeep_per_day": int(getattr(ship, "upkeep_per_day", 0)),
-            "turn_rate": float(getattr(ship, "turn_rate", 1.0)),
-            "accel": float(getattr(ship, "accel", 1.0)),
-            "draft_m": float(getattr(ship, "draft_m", 0.0)),
-            "shallow_water_ok": bool(getattr(ship, "shallow_water_ok", False)),
-            "cargo_protection": float(getattr(ship, "cargo_protection", 0.0)),
-            "pirate_target_mult": float(getattr(ship, "pirate_target_mult", 1.0)),
-            "armor": int(getattr(ship, "armor", 0)),
-            "cannon_slots": int(getattr(ship, "cannon_slots", 0)),
-            "basic_attack_dmg": int(getattr(ship, "basic_attack_dmg", 0)),
+            # World stats
+            "speed": ship.speed,
+            "turn_rate": ship.turn_rate,
+            "accel": ship.accel,
+            "draft_m": ship.draft_m,
+            "capacity_tons": ship.capacity_tons,
+            "cargo_protection": ship.cargo_protection,
+            "pirate_target_mult": ship.pirate_target_mult,
+            "crew_max": ship.crew_max,
+            "crew_required": ship.crew_required,
+            "upkeep_per_day": ship.upkeep_per_day,
+            "cannon_slots": ship.cannon_slots,
+
+            # Combat runtime
+            "hp": ship.hp,
+            "hp_max": ship.hp_max,
         },
+
 
         "markets": markets_out,
         "npc_shipments": shipments_out,
@@ -260,7 +261,7 @@ def load_game(ctx: Any, path: str = DEFAULT_SAVE_PATH) -> bool:
     # --- Ship ---
     sd = data.get("ship", {})
     ship = Ship(
-        type_id=str(sd.get("type_id", "sloop")),
+        id=str(sd.get("id", "sloop")),
         name=str(sd.get("name", "Ship")),
         pos=_tuple2(sd.get("pos", [0.0, 0.0])),
         speed=float(sd.get("speed", 200.0)),
