@@ -67,6 +67,56 @@ class WorldMapState:
             self._gold_icon = None
             self._gold_icon_scaled = None
 
+        # --- Player Stats Button / Menu ---
+        self._stats_open = False
+        self._stats_prev_paused = False
+        self._stats_btn = None
+        self._stats_btn_rect = pygame.Rect(0, 0, 1, 1)
+        self._stats_btn_hover = False
+        # --- Stats menu scrolling ---
+        self._stats_scroll = 0
+        self._stats_content_h = 0
+        self._stats_view_h = 0
+        self._stats_scroll_step = 28
+
+        # ensure player_stats exists (created in combat otherwise)
+        if not hasattr(self.ctx, "player_stats") or self.ctx.player_stats is None:
+            try:
+                from states.combat import PlayerStats  # local import avoids global dependency
+                self.ctx.player_stats = PlayerStats()
+            except Exception:
+                # hard fallback: simple object with expected attrs
+                class _PS:  # noqa
+                    cannon_damage_mult = 1.0
+                    reload_mult = 1.0
+                    boarding_damage_mult = 1.0
+                    repair_mult = 1.0
+                    evade_mult = 1.0
+                    flee_mult = 1.0
+                self.ctx.player_stats = _PS()
+
+        # --- Stats button icons ---
+        self._stats_btn = None
+        self._stats_btn_hover_img = None
+
+        try:
+            surf = pygame.image.load(os.path.join("assets", "ui", "stats.png")).convert_alpha()
+            self._stats_btn = pygame.transform.smoothscale(surf, (80, 120))
+        except Exception:
+            self._stats_btn = None
+
+        try:
+            surf_h = pygame.image.load(os.path.join("assets", "ui", "stats_klick.png")).convert_alpha()
+            self._stats_btn_hover_img = pygame.transform.smoothscale(surf_h, (80, 120))
+        except Exception:
+            self._stats_btn_hover_img = None
+        # --- Stats menu background image (assets/ui/bg_stats.png) ---
+        self._bg_stats = None
+        try:
+            self._bg_stats = pygame.image.load(os.path.join("assets", "ui", "bg_stats.png")).convert_alpha()
+        except Exception:
+            self._bg_stats = None
+
         # aktuelle Map (default)
         if not hasattr(self.ctx, "current_map_id") or not self.ctx.current_map_id:
             self.ctx.current_map_id = "world_01"
@@ -154,7 +204,15 @@ class WorldMapState:
         except Exception:
             self._xp_panel_raw = None
             self._xp_panel = None
+        # --- XP UI: keep panel & fill in identical coordinate space ---
+        stretch_y = 1.35  # 1.15..1.55 je nach Geschmack
 
+        if getattr(self, "_xp_panel", None) is not None and getattr(self, "_xp_fill", None) is not None:
+            w, h = self._xp_panel.get_size()
+            new_h = int(h * stretch_y)
+
+            self._xp_panel = pygame.transform.smoothscale(self._xp_panel, (w, new_h))
+            self._xp_fill  = pygame.transform.smoothscale(self._xp_fill,  (w, new_h))
 
         # --- Encounter Config: map_id -> color -> pool + chance ---
         # v1: simple, aber sauber strukturiert
@@ -266,6 +324,54 @@ class WorldMapState:
         self.ctx.audio.stop_loop_sfx(self._ship_loop_key, fade_ms=800)
 
     def handle_event(self, event) -> None:
+        # --- Stats menu input has priority ---
+        if event.type == pygame.KEYDOWN:
+            if self._stats_open and event.key == pygame.K_ESCAPE:
+                self._toggle_stats_menu(False)
+                if getattr(self.ctx, "audio", None) is not None:
+                    self.ctx.audio.play_sfx(os.path.join("assets", "sfx", "ui_click.mp3"))
+                return
+
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            mx, my = event.pos
+            # click on stats button
+            if getattr(self, "_stats_btn", None) is not None and self._stats_btn_rect.collidepoint(mx, my):
+                self._toggle_stats_menu(not self._stats_open)
+                if getattr(self.ctx, "audio", None) is not None:
+                    self.ctx.audio.play_sfx(os.path.join("assets", "sfx", "ui_click.mp3"))
+                return
+
+            # optional: click outside panel closes when open
+            if self._stats_open:
+                if not self._get_stats_panel_rect().collidepoint(mx, my):
+                    self._toggle_stats_menu(False)
+                    if getattr(self.ctx, "audio", None) is not None:
+                        self.ctx.audio.play_sfx(os.path.join("assets", "sfx", "ui_click.mp3"))
+                return
+
+        # --- Stats menu scrolling (mouse wheel) ---
+        if self._stats_open:
+            if event.type == pygame.MOUSEWHEEL:
+                # pygame: y>0 = up, y<0 = down
+                self._stats_scroll -= int(event.y) * self._stats_scroll_step
+                self._clamp_stats_scroll()
+                return
+
+            # older pygame compatibility (optional)
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if event.button == 4:  # wheel up
+                    self._stats_scroll -= self._stats_scroll_step
+                    self._clamp_stats_scroll()
+                    return
+                if event.button == 5:  # wheel down
+                    self._stats_scroll += self._stats_scroll_step
+                    self._clamp_stats_scroll()
+                    return
+
+        # when stats menu open, block the rest of world interactions
+        if self._stats_open:
+            return
+        
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_SPACE:
                 # Pause toggle
@@ -305,6 +411,37 @@ class WorldMapState:
                 if getattr(self.ctx, "audio", None) is not None:
                     self.ctx.audio.play_sfx(os.path.join("assets", "sfx", "ui_click.mp3"))
 
+    def _clamp_stats_scroll(self) -> None:
+        max_scroll = max(0, int(self._stats_content_h) - int(self._stats_view_h))
+        if self._stats_scroll < 0:
+            self._stats_scroll = 0
+        elif self._stats_scroll > max_scroll:
+            self._stats_scroll = max_scroll
+
+    def _toggle_stats_menu(self, open_: bool) -> None:
+        if open_ == self._stats_open:
+            return
+
+        self._stats_open = open_
+
+        if open_:
+            self._stats_scroll = 0
+            self._stats_content_h = 0
+            self._stats_view_h = 0
+
+        else:
+            # restore previous pause state
+            self.ctx.clock.paused = bool(getattr(self, "_stats_prev_paused", False))
+
+    def _get_stats_panel_rect(self) -> pygame.Rect:
+        # centered panel
+        w = int(self.screen_w * 0.44) if hasattr(self, "screen_w") else 520
+        h = int(self.screen_h * 0.55) if hasattr(self, "screen_h") else 420
+        sw = self._last_screen_w if hasattr(self, "_last_screen_w") else 1280
+        sh = self._last_screen_h if hasattr(self, "_last_screen_h") else 720
+        x = (sw - w) // 2
+        y = (sh - h) // 2
+        return pygame.Rect(x, y, w, h)
 
 
     def update(self, dt: float) -> None:
@@ -607,6 +744,10 @@ class WorldMapState:
         ml = int(getattr(p, "master_lives", 0))
         ml_max = int(getattr(p, "master_lives_max", 3))
 
+        # Bildschirmgröße merken für UI-Layout
+        self._last_screen_w = screen.get_width()
+        self._last_screen_h = screen.get_height()
+
         # -----------------------------
         # Master-Lives Anzeige (über Barometer)
         # -----------------------------
@@ -621,10 +762,7 @@ class WorldMapState:
 
         # --------------- Dockable Cities + Signs + Prompts -----------------
         dockable_any = False
-        dock_city = None
-
         ship_pos = self.ctx.player.ship.pos
-        cur_map = self.ctx.current_map_id
 
         # Fallback, falls barometer rect nicht gesetzt
         if baro is not None:
@@ -783,11 +921,13 @@ class WorldMapState:
         ship = self.ctx.player.ship
         x, y = int(ship.pos[0]), int(ship.pos[1])
 
-        er, eg, eb, *_ = self._map_enc.get_at((x, y))
-
         self._render_barometer(screen)
 
         self._draw_xp_bar(screen)
+
+        self._render_stats_button(screen)
+        if self._stats_open:
+            self._render_stats_menu(screen)
 
     def _render_barometer(self, screen: pygame.Surface) -> None:
         """
@@ -845,7 +985,237 @@ class WorldMapState:
         my = marker_y + (self._marker_h - marker_surf.get_height()) // 2
         screen.blit(marker_surf, (mx, my))
 
-        
+    def _render_stats_button(self, screen: pygame.Surface) -> None:
+        if getattr(self, "_stats_btn", None) is None:
+            return
+        if not hasattr(self, "_baro_rect"):
+            return
+
+        base = self._stats_btn
+        hover_img = getattr(self, "_stats_btn_hover_img", None)
+
+        bw, bh = base.get_width(), base.get_height()
+        x = self._baro_rect.centerx - bw // 2
+        y = self._baro_rect.top - bh - 10
+        self._stats_btn_rect = pygame.Rect(x, y, bw, bh)
+
+        mx, my = pygame.mouse.get_pos()
+        hover = self._stats_btn_rect.collidepoint(mx, my)
+
+        # Use hover flame image if available, else fall back to base
+        if hover and hover_img is not None:
+            screen.blit(hover_img, (x, y))
+        else:
+            screen.blit(base, (x, y))
+
+    def _render_stats_menu(self, screen: pygame.Surface) -> None:
+        # dim background
+        dim = pygame.Surface((screen.get_width(), screen.get_height()), pygame.SRCALPHA)
+        dim.fill((0, 0, 0, 160))
+        screen.blit(dim, (0, 0))
+
+        panel = self._get_stats_panel_rect()
+
+        # --- background for stats menu (overscan to hide transparent edges) ---
+        bg = getattr(self, "_bg_stats", None)
+        if bg is not None:
+            overscan = 1.4  # 8% größer als Panel (fein justierbar)
+
+            bw = int(panel.w * overscan)
+            bh = int(panel.h * overscan)
+
+            bg_scaled = pygame.transform.smoothscale(bg, (bw, bh))
+
+            # center the oversized bg onto the panel
+            bx = panel.x - (bw - panel.w) // 2
+            by = panel.y - (bh - panel.h) // 2
+
+            screen.blit(bg_scaled, (bx, by))
+            # --- text readability overlay (subtle dark layer) ---
+            overlay = pygame.Surface((panel.w, panel.h), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, 80))  # Schwarz mit leichter Transparenz (0–255)
+            screen.blit(overlay, (panel.x, panel.y))
+
+        else:
+            fallback = pygame.Surface((panel.w, panel.h), pygame.SRCALPHA)
+            fallback.fill((20, 20, 24, 235))
+            screen.blit(fallback, (panel.x, panel.y))
+
+
+        # fonts
+        title_font = self._fonts.get(28) if hasattr(self, "_fonts") else self.font
+        body_font = self._fonts.get(18) if hasattr(self, "_fonts") else self.font
+        small_font = self._fonts.get(14) if hasattr(self, "_fonts") else self.small
+
+        def draw_text(font, text, x, y, color=(240, 240, 240)):
+            surf = font.render(text, True, color)
+            screen.blit(surf, (x, y))
+            return surf.get_height()
+
+        # layout regions
+        padding = 16
+        title_h = 52      # reserved for title area
+        footer_h = 34     # reserved for hint
+        # leave room on right for scrollbar
+        content_rect = pygame.Rect(
+            panel.x + padding,
+            panel.y + title_h,
+            panel.w - padding * 2 - 14,
+            panel.h - title_h - footer_h
+        )
+        self._stats_view_h = content_rect.h
+
+        # title (not clipped)
+        x0 = panel.x + 18
+        y_title = panel.y + 14
+        draw_text(title_font, "PLAYER STATS", x0, y_title)
+
+        # gather data
+        player = getattr(self.ctx, "player", None)
+        ship = getattr(player, "ship", None) if player else None
+        ps = getattr(self.ctx, "player_stats", None)
+
+        shipdef = None
+        ship_combat = None
+        if ship is not None and getattr(self.ctx, "content", None) is not None:
+            shipdef = self.ctx.content.ships.get(getattr(ship, "id", ""))
+            ship_combat = getattr(shipdef, "combat", None) if shipdef else None
+
+        def fmt_pct(p: float) -> str:
+            try:
+                p = float(p)
+            except Exception:
+                p = 0.0
+            return f"{p * 100:.0f}%"
+
+        def fmt_mult(v: float) -> str:
+            try:
+                v = float(v)
+            except Exception:
+                v = 1.0
+            pct = (v - 1.0) * 100.0
+            sign = "+" if pct >= 0 else ""
+            return f"x{v:.2f} ({sign}{pct:.0f}%)"
+
+        def add_section(lines: list[tuple[str, str]], heading: str, rows: list[tuple[str, str]]) -> None:
+            lines.append(("_H", heading))
+            for k, v in rows:
+                lines.append((k, v))
+
+        lines: list[tuple[str, str]] = []
+
+        # --- Ship combat section ---
+        if shipdef and ship_combat:
+            base_min = int(getattr(ship_combat, "damage_min", 0))
+            base_max = int(getattr(ship_combat, "damage_max", 0))
+            dtype = str(getattr(ship_combat, "damage_type", "physical"))
+            pen = float(getattr(ship_combat, "penetration", 0.0))
+            aphys = float(getattr(ship_combat, "armor_physical", 0.0))
+            aaby = float(getattr(ship_combat, "armor_abyssal", 0.0))
+            cc = float(getattr(ship_combat, "crit_chance", 0.0))
+            cm = float(getattr(ship_combat, "crit_multiplier", 1.5))
+            ini = float(getattr(ship_combat, "initiative_base", 1.0))
+
+            dmg_mult = float(getattr(ps, "cannon_damage_mult", 1.0)) if ps else 1.0
+            eff_min = int(round(base_min * dmg_mult))
+            eff_max = int(round(base_max * dmg_mult))
+
+            hp_cur = int(getattr(ship, "hp", 0))
+            hp_max = int(getattr(ship, "hp_max", int(getattr(ship_combat, "hp_max", 0))))
+
+            add_section(
+                lines,
+                "SHIP COMBAT",
+                [
+                    ("Ship", str(getattr(shipdef, "name", getattr(shipdef, "id", "unknown")))),
+                    ("HP", f"{hp_cur}/{hp_max}"),
+                    ("Armor (Physical)", f"{aphys:.1f}"),
+                    ("Armor (Abyssal)", f"{aaby:.1f}"),
+                    ("Attack (Base)", f"{base_min}-{base_max} ({dtype})"),
+                    ("Attack (Effective)", f"{eff_min}-{eff_max}  [x{dmg_mult:.2f}]"),
+                    ("Penetration", f"{pen:.1f}"),
+                    ("Crit", f"{fmt_pct(cc)}  x{cm:.2f}"),
+                    ("Initiative", f"{ini:.2f}"),
+                ],
+            )
+        else:
+            add_section(lines, "SHIP COMBAT", [("Info", "No ship combat data found.")])
+
+        # --- Player modifiers section ---
+        add_section(
+            lines,
+            "PLAYER MODIFIERS",
+            [
+                ("Cannon Damage", fmt_mult(getattr(ps, "cannon_damage_mult", 1.0) if ps else 1.0)),
+                ("Reload Speed", fmt_mult(getattr(ps, "reload_mult", 1.0) if ps else 1.0)),
+                ("Boarding Damage", fmt_mult(getattr(ps, "boarding_damage_mult", 1.0) if ps else 1.0)),
+                ("Repair Power", fmt_mult(getattr(ps, "repair_mult", 1.0) if ps else 1.0)),
+                ("Evade", fmt_mult(getattr(ps, "evade_mult", 1.0) if ps else 1.0)),
+                ("Flee", fmt_mult(getattr(ps, "flee_mult", 1.0) if ps else 1.0)),
+            ],
+        )
+
+        # --- Progression section ---
+        if player is not None:
+            add_section(
+                lines,
+                "PROGRESSION",
+                [
+                    ("Gold", str(getattr(player, "money", 0))),
+                    ("XP", str(getattr(player, "xp", 0))),
+                    ("Master Lives", f"{getattr(player, 'master_lives', 0)}/{getattr(player, 'master_lives_max', 0)}"),
+                ],
+            )
+
+        # render content (clipped)
+        prev_clip = screen.get_clip()
+        screen.set_clip(content_rect)
+
+        y = content_rect.y - int(getattr(self, "_stats_scroll", 0))
+
+        line_h = 26
+        gap_h = 12
+        heading_h = 20
+
+        for key, val in lines:
+            if key == "_H":
+                # heading
+                draw_text(small_font, val, x0, y, (180, 180, 190))
+                y += heading_h
+                continue
+
+            draw_text(body_font, f"{key}:", x0, y, (220, 220, 230))
+            draw_text(body_font, str(val), x0 + 220, y, (240, 240, 240))
+            y += line_h
+
+            # section spacing heuristic: after certain labels, add a gap
+            if key in ("Initiative", "Flee", "Master Lives", "Info"):
+                y += gap_h
+
+        # compute content height for scrolling
+        self._stats_content_h = max(0, (y + int(getattr(self, "_stats_scroll", 0))) - content_rect.y)
+
+        # reset clip
+        screen.set_clip(prev_clip)
+
+        # clamp scroll after knowing content height (important if content shrank)
+        self._clamp_stats_scroll()
+
+        # scrollbar
+        max_scroll = max(0, int(self._stats_content_h) - int(self._stats_view_h))
+        if max_scroll > 0:
+            track = pygame.Rect(content_rect.right + 6, content_rect.y, 6, content_rect.h)
+            pygame.draw.rect(screen, (60, 60, 70), track, border_radius=3)
+
+            knob_h = max(24, int(track.h * (self._stats_view_h / max(1, self._stats_content_h))))
+            t = float(getattr(self, "_stats_scroll", 0)) / max_scroll
+            knob_y = int(track.y + t * (track.h - knob_h))
+            knob = pygame.Rect(track.x, knob_y, track.w, knob_h)
+            pygame.draw.rect(screen, (170, 170, 185), knob, border_radius=3)
+
+        # hint (not clipped)
+        hint = "Mouse wheel to scroll • Click outside or ESC to close"
+        draw_text(small_font, hint, x0, panel.bottom - 24, (180, 180, 190))
 
     def _get_animated_marker_surface(self, meter: float, t: float) -> pygame.Surface:
         """
@@ -895,13 +1265,12 @@ class WorldMapState:
             # 1) Panel zuerst (Frame/Background)
             screen.blit(self._xp_panel, r.topleft)
 
-            # 2) Fill als Maske über dem Panel, NUR im Balken-Fenster
+            # 2) Fill (sichtbarer Anteil) – vertikal gestreckt
             if getattr(self, "_xp_fill", None) is not None:
-                # Fenster innerhalb des Panels (diese Werte ggf. minimal anpassen)
                 fill_pad_left = 22
                 fill_pad_right = 22
-                fill_y = 30        # Y-Offset im Panel
-                fill_h = 24        # Höhe der Leiste
+                fill_y = 26
+                fill_h = 64  # <- DAS ist deine neue sichtbare Höhe (hier einstellen)
 
                 fill_rect = pygame.Rect(
                     r.x + fill_pad_left,
@@ -910,29 +1279,42 @@ class WorldMapState:
                     fill_h
                 )
 
-                # 0% -> 10% sichtbar, 100% -> 100%
                 visible = 0.10 + 0.90 * frac
-                vis_w = int(fill_rect.width * visible)
-                vis_w = max(1, min(fill_rect.width, vis_w))
+                vis_w = max(1, min(fill_rect.width, int(fill_rect.width * visible)))
 
-                # Quelle: xp_fill ist exakt wie Panel skaliert -> gleicher Koordinatenraum
+                # Source slice: gleiche Koordinaten wie Panel, aber IMMER innerhalb des Fill-Bilds
                 src_x = fill_pad_left
                 src_y = fill_y
                 src_area = pygame.Rect(src_x, src_y, vis_w, fill_h)
-
                 screen.blit(self._xp_fill, fill_rect.topleft, src_area)
+
 
             # 3) Text: nur Level anzeigen (keine xx/yy mehr)
             lv_txt = self.font.render(f"Lv {lvl}/10", True, (235, 235, 235))
 
+            txt_w, txt_h = lv_txt.get_size()
+            pad_x = 8
+            pad_y = 4
+
             top_y = r.y + 10
             left_x = r.x + 28
 
+            # --- background box behind level text ---
+            bg_rect = pygame.Rect(
+                left_x - pad_x,
+                top_y - pad_y,
+                txt_w + pad_x * 2,
+                txt_h + pad_y * 2
+            )
+
+            bg_surf = pygame.Surface(bg_rect.size, pygame.SRCALPHA)
+            bg_surf.fill((0, 0, 0, 120))  # Alpha 90–140 je nach Geschmack
+            screen.blit(bg_surf, bg_rect.topleft)
+
+            # --- text on top ---
             screen.blit(lv_txt, (left_x, top_y))
 
-
             return
-
 
         # Fallback (falls xp.png fehlt): primitives UI
         w, h = 260, 14

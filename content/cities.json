@@ -56,7 +56,7 @@
       "city_type_id": "harbor_city",
       "map_id": "world_01",
       "pos": [320, 550],
-      "harbor_radius": 30
+      "harbor_radius": 50
     },
     {
       "id": "ST_002",
