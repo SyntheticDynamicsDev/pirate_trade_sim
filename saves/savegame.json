@@ -2,7 +2,7 @@
   "version": 1,
   "clock": {
     "day": 1,
-    "seconds_in_day": 209.2939999999719,
+    "seconds_in_day": 556.3380000000952,
     "day_length_seconds": 600.0,
     "time_scale": 1.0,
     "paused": true,
@@ -15,11 +15,11 @@
       1006.0206629701815,
       222.02939616148927
     ],
-    "enc_meter": 0.0
+    "enc_meter": 0.4704000000000004
   },
   "player": {
-    "money": 7903,
-    "xp": 55,
+    "money": 7996,
+    "xp": 106,
     "crew_hp": 0,
     "docked_city_id": null,
     "houses": [],
@@ -238,23 +238,33 @@
         "good_id": "canvas",
         "qty_tons": 1.0,
         "age_days": 0
+      },
+      {
+        "good_id": "rum",
+        "qty_tons": 1.41,
+        "age_days": 0
+      },
+      {
+        "good_id": "rum",
+        "qty_tons": 0.3499999999999943,
+        "age_days": 0
       }
     ],
-    "master_lives": 3,
+    "master_lives": 2,
     "master_lives_max": 3
   },
   "ship": {
     "id": "sloop",
     "name": "Schaluppe",
     "pos": [
-      1037.9224402731154,
-      301.8155971737637
+      878.1301785379791,
+      345.7996585055196
     ],
     "vel": [
-      0.0,
-      0.0
+      10.465114345695545,
+      2.8541220942806023
     ],
-    "heading": -0.7721823907535605,
+    "heading": -1.3045442776439713,
     "ang_vel": 0.0,
     "throttle": 0.0,
     "speed": 100.0,
@@ -268,7 +278,7 @@
     "crew_required": 6,
     "upkeep_per_day": 10,
     "cannon_slots": 2,
-    "hp": 117,
+    "hp": 31,
     "hp_max": 180
   },
   "markets": {

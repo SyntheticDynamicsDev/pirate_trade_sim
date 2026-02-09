@@ -7,11 +7,16 @@ from typing import Optional, Dict
 from dataclasses import dataclass, field
 from data.loader import EnemyDef
 from settings import TIME_SCALE_1X, TIME_SCALE_2X, TIME_SCALE_4X
+from enum import Enum
 
 
 # -----------------------------
 # Data / Definitions (v1)
 # -----------------------------
+class CombatStance(Enum):
+    OFFENSIVE = "offensive"
+    BALANCED = "balanced"
+    DEFENSIVE = "defensive"
 
 @dataclass
 class PlayerStats:
@@ -51,6 +56,10 @@ class CombatantRuntime:
     # Status effects
     status: dict = field(default_factory=dict)
 
+    # Morale
+    morale: int = 100  # 0..100
+
+
 @dataclass
 class _FloatText:
     text: str
@@ -59,7 +68,8 @@ class _FloatText:
     vy: float
     ttl: float
     color: tuple[int, int, int]
-
+    crit: bool = False
+    scale: float = 1.0
 
 @dataclass
 class _Particle:
@@ -101,6 +111,17 @@ class CombatEngine:
         self._turn_queue: list[str] = []
         self.last_initiative: dict = {"player": 0.0, "enemy": 0.0}
 
+        # --- Combat Stance ---
+        self.stance: CombatStance = CombatStance.BALANCED
+        self._stance_changed_this_round: bool = False
+        # track morale tier changes (for feedback)
+        self._last_morale_tier = {
+            "player": self._morale_tier(self.p.morale),
+            "enemy": self._morale_tier(self.e.morale),
+        }
+
+
+
     def pop_event(self) -> Optional[dict]:
         if not self._events:
             return None
@@ -111,6 +132,51 @@ class CombatEngine:
         if not hasattr(self, "_events") or self._events is None:
             self._events = []
         self._events.append(ev)
+
+    def _morale_tier(self, morale: int) -> str:
+        if morale >= 80:
+            return "bonus"
+        if morale >= 40:
+            return "neutral"
+        if morale >= 20:
+            return "malus"
+        return "panic"
+
+    def _morale_modifiers(self, morale: int) -> dict:
+        tier = self._morale_tier(morale)
+
+        if tier == "bonus":
+            return {
+                "hit": 1.10,
+                "repair": 1.15,
+                "flee": 0.85,
+                "panic_fail": 0.0,
+            }
+
+        if tier == "malus":
+            return {
+                "hit": 0.85,
+                "repair": 0.75,
+                "flee": 1.15,
+                "panic_fail": 0.0,
+            }
+
+        if tier == "panic":
+            return {
+                "hit": 0.65,
+                "repair": 0.50,
+                "flee": 1.35,
+                "panic_fail": 0.25,  # 25% Aktion scheitert
+            }
+
+        # neutral
+        return {
+            "hit": 1.0,
+            "repair": 1.0,
+            "flee": 1.0,
+            "panic_fail": 0.0,
+        }
+
 
     def player_fire(self) -> bool:
         # Unified turn-based API (keine Legacy await/turn mehr)
@@ -135,6 +201,15 @@ class CombatEngine:
 
 
     def player_repair(self) -> bool:
+
+        mods = self._morale_modifiers(self.p.morale)
+
+        # panic check
+        if mods["panic_fail"] > 0.0 and random.random() < mods["panic_fail"]:
+            self.add_log("Repair failed due to panic!")
+            self._advance_turn()
+            return False
+
         if self.finished or self.turn_owner != "player":
             return False
 
@@ -144,6 +219,8 @@ class CombatEngine:
 
         # kleine feste Heilung (Phase 2), später scaling
         amount = max(1, int(round(self.p.hp_max * 0.12)))
+        amount = int(amount * mods["repair"])
+        amount = max(1, amount)
         self.p.hp = min(self.p.hp_max, self.p.hp + amount)
         self.add_event({"type": "repair", "side": "player", "amount": amount})
 
@@ -154,7 +231,14 @@ class CombatEngine:
         if self.finished or self.turn_owner != "player":
             return False
         # Phase 2: 50/50 oder konstant 35% je nach tier
+        stance_mods = self._stance_modifiers()
+        morale_mods = self._morale_modifiers(self.p.morale)
+
         chance = 0.45
+        chance *= stance_mods["flee"]
+        chance *= morale_mods["flee"]
+        chance = max(0.05, min(0.95, chance))
+
         ok = (random.random() < chance)
         self.add_event({"type": "flee", "side": "player", "ok": ok})
         if ok:
@@ -207,6 +291,49 @@ class CombatEngine:
         if self.turn_owner == "enemy":
             self._enemy_take_turn()
             return
+        
+    def set_stance(self, stance: CombatStance) -> bool:
+        """
+        Returns True if stance was changed.
+        Can be called only once per round.
+        """
+        if self.finished:
+            return False
+
+        if self._stance_changed_this_round:
+            return False
+
+        if stance == self.stance:
+            return False
+
+        self.stance = stance
+        self._stance_changed_this_round = True
+        self.add_log(f"Stance set to {stance.name.title()}")
+
+        return True
+
+    def _stance_modifiers(self) -> dict:
+        """
+        Central stance balance table.
+        """
+        if self.stance == CombatStance.OFFENSIVE:
+            return {
+                "damage": 1.20,
+                "morale": -1.0,
+                "flee": 0.75,
+            }
+        if self.stance == CombatStance.DEFENSIVE:
+            return {
+                "damage": 0.85,
+                "morale": +1.0,
+                "flee": 1.25,
+            }
+        # BALANCED
+        return {
+            "damage": 1.0,
+            "morale": 0.0,
+            "flee": 1.0,
+        }
 
     def _stop_turns(self) -> None:
         self._turn_queue = []
@@ -283,6 +410,9 @@ class CombatEngine:
     def _start_new_round(self) -> None:
         self.round_index += 1
 
+        # reset stance-change lock per round
+        self._stance_changed_this_round = False
+
         ip = self._roll_initiative(self.p.initiative_base)
         ie = self._roll_initiative(self.e.initiative_base)
         self.last_initiative = {"player": ip, "enemy": ie}
@@ -297,6 +427,8 @@ class CombatEngine:
 
 
     def _fire(self, attacker: CombatantRuntime, defender: CombatantRuntime, mult: float) -> dict:
+        mods = self._stance_modifiers()
+
         """
         Feste Damage-Auflösung (verbindliche Reihenfolge, keine Sonderfälle):
         1) Damage-Roll [min..max]
@@ -315,6 +447,9 @@ class CombatEngine:
 
         # 2) Crit check
         cc = float(attacker.crit_chance)
+        morale_mods = self._morale_modifiers(attacker.morale)
+        cc *= morale_mods["hit"]
+        cc = max(0.0, min(1.0, cc))
         cm = float(attacker.crit_multiplier)
         is_crit = (random.random() < max(0.0, min(1.0, cc)))
         if is_crit:
@@ -335,11 +470,33 @@ class CombatEngine:
         dmg_mult_from_armor = 1.0 - (effective_armor / 100.0)
 
         # final damage (mult bleibt als hook, aber keine Sonderfälle)
-        dmg = int(round(base * float(mult) * dmg_mult_from_armor))
+        dmg = int(round(base * float(mult) * dmg_mult_from_armor * mods["damage"]))
         if dmg < 1:
             dmg = 1
 
         defender.hp = max(0, int(defender.hp) - dmg)
+        # morale impact
+        if is_crit:
+            defender.morale -= 8
+            attacker.morale += 4
+        else:
+            defender.morale -= 4
+            attacker.morale += 2
+
+        defender.morale = max(0, min(100, defender.morale))
+        attacker.morale = max(0, min(100, attacker.morale))
+
+        # morale tier change feedback
+        for key, unit in (("player", attacker), ("enemy", defender)):
+            old = self._last_morale_tier.get(key)
+            new = self._morale_tier(unit.morale)
+            if old != new:
+                self._last_morale_tier[key] = new
+                self.add_event({
+                    "type": "morale_shift",
+                    "side": key,
+                    "tier": new,
+                })
 
         return {
             "result": "crit" if is_crit else "hit",
@@ -428,8 +585,16 @@ class CombatState:
 
         self._fonts = FontBank(UI_FONT_PATH, UI_FONT_FALLBACK)
         self.font = self._fonts.get(18)
-        self.small = self._fonts.get(14)
+        self.small = self._fonts.get(16)
         
+        # --- Damage number fonts (big & bold) ---
+        self._dmg_font = self._fonts.get(32)
+        self._dmg_font.set_bold(True)
+
+        # optional: noch stärker für Crits (später)
+        self._dmg_font_big = self._fonts.get(40)
+        self._dmg_font_big.set_bold(True)
+
         self.engine = None
 
         self._pending_rewards = {"gold": 0, "xp": 0, "cargo": []}
@@ -483,6 +648,8 @@ class CombatState:
             difficulty_tier=int(getattr(c, "difficulty_tier", 1)),
             threat_level=int(getattr(c, "threat_level", 1)),
         )
+        # Morale initialisieren (kann später durch Aktionen beeinflusst werden)
+        self._player.morale = random.randint(65, 80)
 
         ed = self.ctx.content.enemies.get(self.enemy_id)
         # kein fallback mehr: enemy_id muss existieren
@@ -507,13 +674,18 @@ class CombatState:
             threat_level=int(ed.combat.threat_level),
         )
 
+        #morale initialisieren (kann später durch Aktionen beeinflusst werden)
+        self._enemy.morale = random.randint(55, 75)
 
         self.engine = CombatEngine(self._player, self._enemy, self.ctx.player_stats)
 
-        # UI rects
-        self.btn_fire  = pygame.Rect(60, 520, 140, 44)
-        self.btn_repair= pygame.Rect(220, 520, 140, 44)
-        self.btn_flee  = pygame.Rect(540, 520, 140, 44)
+
+        # UI rects (werden per _layout_ui() dynamisch gesetzt)
+        self.btn_fire = pygame.Rect(0, 0, 1, 1)
+        self.btn_repair = pygame.Rect(0, 0, 1, 1)
+        self.btn_flee = pygame.Rect(0, 0, 1, 1)
+        self._log_panel_rect = pygame.Rect(0, 0, 1, 1)
+
 
         # --- Result overlay state ---
         self._result_showing = False
@@ -539,6 +711,13 @@ class CombatState:
         # background selection (by enemy tags if available)
         self._bg = self._load_combat_background()
 
+        # --- UI: empty sign for unit names ---
+        try:
+            sign_path = os.path.join("assets", "ui", "sign_empty.png")
+            self._sign_empty = pygame.image.load(sign_path).convert_alpha()
+        except Exception:
+            self._sign_empty = None
+
         # --- Visuals: NEW schema via ship_def.visual ---
         ship_def = self.ctx.content.ships[self.ctx.player.ship.id]
         enemy_def = self.ctx.content.enemies[self.enemy_id]
@@ -549,7 +728,7 @@ class CombatState:
 
         self._player_vis = {
             "sprite": str(getattr(v, "sprite")),
-            "size": tuple(getattr(v, "size", (260, 160))),
+            "size": tuple(getattr(v, "size", (380, 240))),
             "scale": float(getattr(v, "scale", 1.0)),
             "offset": tuple(getattr(v, "offset", (0, 0))),
             "flip_x": bool(getattr(v, "flip_x", False)),
@@ -561,14 +740,16 @@ class CombatState:
 
         self._enemy_vis = {
             "sprite": enemy_def.sprite,  # kommt aus enemies.json -> visual.sprite
-            "size": tuple(getattr(enemy_def, "sprite_size", (260, 160))),
+            "size": tuple(getattr(enemy_def, "sprite_size", (380,240))),
             "scale": float(getattr(enemy_def, "sprite_scale", 1.0)),
             "offset": tuple(getattr(enemy_def, "sprite_offset", (0, 0))),
             "flip_x": bool(getattr(enemy_def, "sprite_flip_x", True)),
         }
 
+        self._player_vis["scale"] = 1.18
+        self._enemy_vis["scale"] = 1.22
         self._spr_player = self._load_sprite_spec(self._player_vis)
-        self._spr_enemy  = self._load_sprite_spec(self._enemy_vis)
+        self._spr_enemy = self._load_sprite_spec(self._enemy_vis)
 
         self._reveal = getattr(self.ctx, "transition_reveal", None)
         if self._reveal:
@@ -585,6 +766,13 @@ class CombatState:
             except Exception:
                 self._reveal = None
 
+        # --- Name sign (empty wooden sign) ---
+        try:
+            ui_dir = os.path.join("assets", "ui")  # falls du ui_dir bereits irgendwo setzt: diesen try-Block behalten
+            sign_path = os.path.join(ui_dir, "sign_empty.png")
+            self._sign_empty = pygame.image.load(sign_path).convert_alpha()
+        except Exception:
+            self._sign_empty = None
 
 
         from settings import MASTER_LIFE_ICON
@@ -595,6 +783,36 @@ class CombatState:
         except Exception:
             self._ml_icon = None
 
+        # --- Turn delay (visual spacing between actions) ---
+        self._turn_delay = 0.0  # seconds remaining
+        self._pending_action = None  # e.g. ("fire",) / ("repair",) / ("flee",)
+        # --- Unit rect cache for precise VFX placement ---
+        self._unit_rects = {"player": None, "enemy": None}
+
+        # --- Stance UI ---
+        self._stance_icons = {}
+        self._stance_rects = {}
+
+        base = os.path.join("assets", "ui", "stance")
+        for key in ("offensive", "balanced", "defensive"):
+            path = os.path.join(base, f"{key}.png")
+            try:
+                self._stance_icons[key] = pygame.image.load(path).convert_alpha()
+            except Exception:
+                self._stance_icons[key] = None
+
+        # --- Morale UI assets (3-layer) ---
+        try:
+            base = os.path.join("assets", "ui", "moral")
+            self._morale_frame = pygame.image.load(os.path.join(base, "moral.png")).convert_alpha()
+            self._morale_fill = pygame.image.load(os.path.join(base, "moral_fill.png")).convert_alpha()
+            self._morale_bg = pygame.image.load(os.path.join(base, "moral_bg.png")).convert_alpha()
+        except Exception:
+            self._morale_frame = None
+            self._morale_fill = None
+            self._morale_bg = None
+        # --- Morale bar sizing (UI scale) ---
+        self._morale_scale = 0.18   # 60% der Originalgröße
 
     def _resolve_player_visual(self) -> dict:
         ship = self.ctx.player.ship
@@ -673,11 +891,43 @@ class CombatState:
             self._sprite_cache[key] = None
             return None
 
-        surf = pygame.transform.smoothscale(img, (w, h))
+        try:
+            img = pygame.image.load(path).convert_alpha()
+        except Exception:
+            # cache negative result to avoid repeated disk hits
+            self._sprite_cache[key] = None
+            return None
+
+        # --- aspect-ratio preserving scale (fit into w x h) ---
+        iw, ih = img.get_size()
+        if iw <= 0 or ih <= 0:
+            self._sprite_cache[key] = None
+            return None
+
+        # --- aspect-ratio preserving scale (fit into w x h) + optional spec scale ---
+        iw, ih = img.get_size()
+        if iw <= 0 or ih <= 0:
+            self._sprite_cache[key] = None
+            return None
+
+        fit = min(w / float(iw), h / float(ih))
+
+        # NEW: apply spec scale on top of the fit
+        spec_scale = float(spec.get("scale", 1.0))
+        s = fit * spec_scale
+
+        out_w = max(1, int(iw * s))
+        out_h = max(1, int(ih * s))
+
+        # update cache key so different aspect outputs don't collide
+        key = (path, out_w, out_h, "fit")
+        cached = self._sprite_cache.get(key)
+        if cached is not None:
+            return cached
+
+        surf = pygame.transform.smoothscale(img, (out_w, out_h))
         self._sprite_cache[key] = surf
         return surf
-
-
 
     def _try_load_sprite(self, path: str, size: tuple[int, int]) -> Optional[pygame.Surface]:
         try:
@@ -902,8 +1152,114 @@ class CombatState:
                     drops.append((entry.good_id, round(float(tons), 2)))
         return drops
 
+    def _layout_ui(self, screen: pygame.Surface) -> None:
+        """Responsive UI layout for combat: left stacked buttons + bottom-right combat log."""
+        W, H = screen.get_size()
+
+        # --- Buttons: left, stacked ---
+        btn_w, btn_h = 180, 46
+        gap = 12
+        margin_l = 40
+        margin_b = 34
+
+        total_h = btn_h * 3 + gap * 2
+        top_y = H - margin_b - total_h
+
+        self.btn_fire   = pygame.Rect(margin_l, top_y + 0 * (btn_h + gap), btn_w, btn_h)
+        self.btn_repair = pygame.Rect(margin_l, top_y + 1 * (btn_h + gap), btn_w, btn_h)
+        self.btn_flee   = pygame.Rect(margin_l, top_y + 2 * (btn_h + gap), btn_w, btn_h)
+
+        # --- Combat log: bottom-right panel ---
+        panel_w = 420
+        # Header + spacing + up to 8 lines
+        line_h = 20
+        header_h = 26
+        pad = 12
+        lines = 8
+        panel_h = pad + header_h + 6 + lines * line_h + pad
+
+        margin_r = 32
+        panel_x = W - margin_r - panel_w
+        panel_y = H - margin_b - panel_h
+
+        self._log_panel_rect = pygame.Rect(panel_x, panel_y, panel_w, panel_h)
+        self._log_lines_max = lines
+        self._log_line_h = line_h
+        self._log_pad = pad
+        self._log_header_h = header_h
+
+        # --- Stance buttons (above combat buttons) ---
+        icon_size = 44
+        gap = 10
+
+        x = self.btn_fire.x
+        y = self.btn_fire.y - icon_size - 16
+
+        order = ["offensive", "balanced", "defensive"]
+        self._stance_rects = {}
+
+        for i, key in enumerate(order):
+            self._stance_rects[key] = pygame.Rect(
+                x + i * (icon_size + gap),
+                y,
+                icon_size,
+                icon_size,
+            )
+
+
+    def _draw_combat_log_panel(self, screen: pygame.Surface) -> None:
+        """Draws combat log inside a bottom-right panel."""
+        r = getattr(self, "_log_panel_rect", None)
+        if r is None:
+            return
+
+        # Panel background (rounded, semi-transparent, no border)
+        panel = pygame.Surface((r.w, r.h), pygame.SRCALPHA)
+        pygame.draw.rect(
+            panel,
+            (0, 0, 0, 180),          # transparent black
+            pygame.Rect(0, 0, r.w, r.h),
+            border_radius=14
+        )
+        screen.blit(panel, (r.x, r.y))
+
+
+        x = r.x + self._log_pad
+        y = r.y + self._log_pad
+
+        # Header
+        screen.blit(self.font.render("Combat Log", True, (230, 230, 230)), (x, y))
+        y += self._log_header_h
+
+        # Lines
+        lines = list(getattr(self.engine, "log", []))[-self._log_lines_max:]
+        for line in lines:
+            screen.blit(self.font.render(f"- {line}", True, (200, 200, 200)), (x, y))
+            y += self._log_line_h
 
     def handle_event(self, event) -> None:
+        # --- Stance click ---
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            mx, my = event.pos
+
+            for key, rect in self._stance_rects.items():
+                if rect.collidepoint(mx, my):
+
+                    mapping = {
+                        "offensive": CombatStance.OFFENSIVE,
+                        "balanced": CombatStance.BALANCED,
+                        "defensive": CombatStance.DEFENSIVE,
+                    }
+
+                    self.engine.set_stance(mapping[key])
+                    return
+
+        
+        # keep UI layout in sync (important for click rects)
+        try:
+            self._layout_ui(self.ctx.screen)
+        except Exception:
+            pass
 
         # Wenn Ergebnis-Overlay aktiv, nur Exit-Input erlauben
         if getattr(self, "_result_showing", False):
@@ -920,23 +1276,49 @@ class CombatState:
                 self.ctx.clock.paused = not self.ctx.clock.paused
             return
 
+        # Block combat actions while turn-delay is running (pause still allowed)
+        if float(getattr(self, "_turn_delay", 0.0)) > 0.0:
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
+                self.ctx.clock.paused = not self.ctx.clock.paused
+            return
+
 
         #Buttons
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_SPACE:
                 self.ctx.clock.paused = not self.ctx.clock.paused
 
-        #Mouse
+        # --- Player actions are queued and executed after a 1s pre-delay ---
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             mx, my = event.pos
 
-            # Action control
+            # only during player turn
+            if getattr(self.engine, "turn_owner", "player") != "player":
+                return
+
+            # if a delay is running or something is already queued, ignore
+            if float(getattr(self, "_turn_delay", 0.0)) > 0.0 or getattr(self, "_pending_action", None) is not None:
+                return
+
+            # Decide which action to queue
             if self.btn_fire.collidepoint(mx, my):
-                self.engine.player_fire()
+                self._pending_action = ("fire",)
             elif self.btn_repair.collidepoint(mx, my):
-                self.engine.player_repair()
+                # Avoid "wait 1s -> nothing happens" by validating locally
+                if getattr(self._player, "hp", 0) >= getattr(self._player, "hp_max", 0):
+                    return
+                self._pending_action = ("repair",)
             elif self.btn_flee.collidepoint(mx, my):
-                self.engine.player_flee()
+                self._pending_action = ("flee",)
+            else:
+                return
+
+            # Start PRE-delay so you see who acts first before anything happens
+            ts = float(getattr(self.ctx.clock, "time_scale", 1.0)) or 1.0
+            self._turn_delay = 0.2
+            return
+
+
 
     def _cycle_time_speed(self) -> None:
         if self.ctx.clock.paused:
@@ -970,14 +1352,67 @@ class CombatState:
                     self._reveal = None
             return
 
+        # --- Turn delay gate: wait before allowing next action/turn to execute ---
+        if float(getattr(self, "_turn_delay", 0.0)) > 0.0:
+            self._turn_delay = max(0.0, float(self._turn_delay) - float(dt))
+
+            # Reveal weiter ticken lassen (sonst kann es wieder "kleben")
+            if getattr(self, "_reveal", None):
+                self._reveal["t"] = float(self._reveal.get("t", 0.0)) + float(dt)
+                dur = float(self._reveal.get("duration", 0.85))
+                if self._reveal["t"] >= dur:
+                    self._reveal = None
+            return
+
+        # --- Execute queued player action AFTER the pre-delay ---
+        if float(getattr(self, "_turn_delay", 0.0)) <= 0.0 and getattr(self, "_pending_action", None) is not None:
+            action = self._pending_action
+            self._pending_action = None
+
+            # Execute exactly one player intent
+            acted = False
+            if action[0] == "fire":
+                acted = bool(self.engine.player_fire())
+            elif action[0] == "repair":
+                acted = bool(self.engine.player_repair())
+            elif action[0] == "flee":
+                acted = bool(self.engine.player_flee())
+
+            # Drain events immediately so VFX/log shows right away
+            any_action_event = False
+            while True:
+                ev = self.engine.pop_event()
+                if not ev:
+                    break
+                self._handle_vfx_event(ev)
+                if ev.get("type") in ("fire", "repair", "board", "flee"):
+                    any_action_event = True
+
+            # Start POST-delay after the executed action (spacing before the next one)
+            if acted or any_action_event:
+                ts = float(getattr(self.ctx.clock, "time_scale", 1.0)) or 1.0
+                self._turn_delay = 0.5 / max(0.25, ts)
+
+            return
+
+
         self.engine.update(dt)
 
-        # VFX events konsumieren (damit Treffer/Repair etc. sichtbar werden)
+        acted = False
         while True:
             ev = self.engine.pop_event()
             if not ev:
                 break
             self._handle_vfx_event(ev)
+
+            # Any of these events represent an action we want to space out
+            if ev.get("type") in ("fire", "repair", "board", "flee"):
+                acted = True
+
+        # After an action (usually enemy auto-turn), start delay before next turn
+        if acted and not getattr(self.engine, "finished", False):
+            ts = float(getattr(self.ctx.clock, "time_scale", 1.0)) or 1.0
+            self._turn_delay = 0.5 / max(0.25, ts)
 
         if self.engine.finished and not getattr(self, "_result_showing", False):
             # Payload/Rewards nur einmal bauen
@@ -1037,8 +1472,10 @@ class CombatState:
         src = (left_x, mid_y) if side == "player" else (right_x, mid_y)
         dst = (right_x, mid_y) if side == "player" else (left_x, mid_y)
 
-        def add_float(text, x, y, color):
-            self._float_texts.append(_FloatText(text=text, x=float(x), y=float(y), vy=-22.0, ttl=1.05, color=color))
+        def add_float(text, x, y, color, crit: bool = False, scale: float = 1.0):
+            self._float_texts.append(
+                _FloatText(text=text, x=float(x), y=float(y), vy=-22.0, ttl=1.05, color=color, crit=crit, scale=float(scale))
+            )
 
         def add_burst(x, y, base_color):
             for _ in range(14):
@@ -1070,9 +1507,50 @@ class CombatState:
                 # a miss still gets a small splash near dst
                 add_burst(dst[0] + random.randint(-20, 20), dst[1] + random.randint(10, 30), (140, 160, 180))
 
-            # Damage numbers
+            # Damage numbers (placed ON the defender ship)
             if hull > 0:
-                add_float(f"-{hull}", dst[0] + random.randint(-10, 10), dst[1] - 40, (240, 120, 110))
+                # side == attacker ("player" or "enemy")
+                defender_key = "enemy" if side == "player" else "player"
+
+                # --- compute defender rect directly (do not rely on cached rects) ---
+                pv = self._player_vis
+                evv = self._enemy_vis
+
+                p_cx = int(W * 0.28) + int(pv["offset"][0])
+                p_cy = mid_y + int(pv["offset"][1])
+
+                e_cx = int(W * 0.72) + int(evv["offset"][0])
+                e_cy = mid_y + int(evv["offset"][1])
+
+                p_spr = getattr(self, "_spr_player", None)
+                e_spr = getattr(self, "_spr_enemy", None)
+
+                p_w = p_spr.get_width() if p_spr else 180
+                p_h = p_spr.get_height() if p_spr else 90
+                e_w = e_spr.get_width() if e_spr else 180
+                e_h = e_spr.get_height() if e_spr else 90
+
+                if defender_key == "enemy":
+                    rdef = pygame.Rect(e_cx - e_w // 2, e_cy - e_h // 2, e_w, e_h)
+                else:
+                    rdef = pygame.Rect(p_cx - p_w // 2, p_cy - p_h // 2, p_w, p_h)
+
+                # --- crit styling ---
+                is_crit = (res == "crit")
+                col = (255, 210, 120) if is_crit else (240, 120, 110)
+                scale = 1.25 if is_crit else 1.0
+
+                # --- position ON the ship body (tweakable) ---
+                # slightly above center
+                y = rdef.centery - int(rdef.height * 0.18) + random.randint(-4, 4)
+
+                # nudge toward "inside" so it doesn't drift off the hull
+                if defender_key == "enemy":
+                    x = rdef.centerx - int(rdef.width * 0.06) + 170
+                else:
+                    x = rdef.centerx + int(rdef.width * 0.06) + random.randint(-4, 4)
+
+                add_float(f"-{hull}", x, y, col, crit=is_crit, scale=scale)
 
         elif et == "board":
             hull = int(ev.get("hull", 0))
@@ -1091,13 +1569,49 @@ class CombatState:
             ok = bool(ev.get("success", ev.get("ok", False)))
             add_float("ESCAPE!" if ok else "FAILED!", src[0], src[1] - 40, (200, 200, 240) if ok else (240, 140, 140))
 
+        elif et == "morale_shift":
+            tier = ev.get("tier")
+            side = ev.get("side")
+
+            if tier == "panic":
+                self.engine.add_log(f"{side.upper()} is panicking!")
+                self._start_shake(0.15, 3.5)
+            elif tier == "malus":
+                self.engine.add_log(f"{side.upper()} morale is faltering.")
 
     def _start_shake(self, dur: float, amp: float) -> None:
         self._shake_t = max(self._shake_t, float(dur))
         self._shake_amp = max(self._shake_amp, float(amp))
 
+    def _apply_red_tint(self, surf: pygame.Surface, strength: float) -> pygame.Surface:
+        """
+        strength:
+            0.0 = original color
+            1.0 = fully red-tinted
+        """
+        strength = max(0.0, min(1.0, strength))
+        if strength <= 0.0:
+            return surf
+
+        # Red tint overlay (NO alpha fading)
+        overlay = pygame.Surface(surf.get_size(), pygame.SRCALPHA)
+
+        # Red increases, green/blue decrease with strength
+        r = 255
+        g = int(255 * (strength))
+        b = int(255 * (strength))
+
+        overlay.fill((r, g, b, 255))
+
+        out = surf.copy()
+        out.blit(overlay, (0, 0), special_flags=pygame.BLEND_RGB_MULT)
+        return out
 
     def render(self, screen: pygame.Surface) -> None:
+        
+        # responsive layout each frame
+        self._layout_ui(screen)
+
         # --- Screen shake offset ---
         ox, oy = 0, 0
         if getattr(self, "_shake_t", 0.0) > 0.0 and getattr(self, "_shake_amp", 0.0) > 0.0:
@@ -1116,8 +1630,14 @@ class CombatState:
         gap = 8
 
         # Beispiel: über linker UI / Barometer
-        start_x = 24
-        start_y = 24  # falls Combat kein Barometer hat → leicht nach unten
+        W, H = screen.get_size()
+
+        total_w = ml_max * size + (ml_max - 1) * gap
+        margin = 24
+
+        start_x = W - total_w - margin
+        start_y = margin
+
 
         if self._ml_icon is not None:
             icon = pygame.transform.smoothscale(self._ml_icon, (size, size))
@@ -1142,13 +1662,90 @@ class CombatState:
         screen.blit(title, (40, 30))
 
         # Bars
-        self._draw_bar(screen, 60, 90,  620, 18, self._player.hp, self._player.hp_max, "Your HP")
+        # Bars (centered above player/enemy units, half length)
+        W, H = screen.get_size()
+        mid_y = int(H * 0.45)
 
-        self._draw_status_line(screen, 60, 140, self._player, "You")
-        self._draw_status_line(screen, 60, 220, self._enemy, "Enemy")
+        pv = self._player_vis
+        ev = self._enemy_vis
+
+        p_cx = int(W * 0.28) + int(pv["offset"][0])
+        p_cy = mid_y + int(pv["offset"][1])
+
+        e_cx = int(W * 0.72) + int(ev["offset"][0])
+        e_cy = mid_y + int(ev["offset"][1])
+
+        # Use sprite heights for correct vertical placement (fallback if missing)
+        p_h = self._spr_player.get_height() if getattr(self, "_spr_player", None) else 60
+        e_h = self._spr_enemy.get_height() if getattr(self, "_spr_enemy", None) else 60
+
+        bar_w = 310  # half of 620
+        bar_h = 18
+        lift = 60  # distance above the sprite
+
+        p_bar_x = p_cx - bar_w // 2
+        p_bar_y = max(10, int(p_cy - (p_h * 0.5) - lift))
+
+        e_bar_x = e_cx - bar_w // 2
+        e_bar_y = max(10, int(e_cy - (e_h * 0.5) - lift))
+
+        # --- HP + Status: shared panel (covers text + bar + status), status below HP ---
+        panel_pad = 8
+        panel_alpha = 140
+        gap_status = 8
+
+        font_h = self.font.get_height()
+        label_h = font_h          # "YOUR HP: 117/180" etc.
+        status_h = font_h         # "YOU STATUS: ..." line
+
+        p_status_y = p_bar_y + bar_h + gap_status
+        e_status_y = e_bar_y + bar_h + gap_status
+
+        def _hp_panel(x_left: int, bar_y: int, status_y: int) -> None:
+            # Panel covers: label above bar + bar + status below
+            top = bar_y - label_h - 26
+            bottom = status_y + status_h + 6 + int(40 * self._morale_scale) 
+            h = max(1, bottom - top)
+            w = bar_w + panel_pad * 2
+
+            # rounded transparent background
+            surf = pygame.Surface((w, h), pygame.SRCALPHA)
+            pygame.draw.rect(
+                surf,
+                (0, 0, 0, panel_alpha),   # transparent black
+                pygame.Rect(0, 0, w, h),
+                border_radius=14
+            )
+
+            screen.blit(surf, (x_left - panel_pad, top))
 
 
-        self._draw_bar(screen, 60, 170, 620, 18, self._enemy.hp, self._enemy.hp_max, "Enemy HP")
+        _hp_panel(p_bar_x, p_bar_y, p_status_y)
+        _hp_panel(e_bar_x, e_bar_y, e_status_y)
+
+        # HP bars (label is typically drawn by _draw_bar)
+        self._draw_bar(screen, p_bar_x, p_bar_y, bar_w, bar_h,
+                    self._player.hp, self._player.hp_max, "Your HP")
+        self._draw_bar(screen, e_bar_x, e_bar_y, bar_w, bar_h,
+                    self._enemy.hp, self._enemy.hp_max, "Enemy HP")
+        # --- Morale bars INSIDE HP panels ---
+        morale_y_offset = bar_h + 8
+
+        self._draw_morale_bar(
+            screen,
+            p_bar_x,
+            p_bar_y + morale_y_offset,
+            self._player.morale,
+            "YOUR"
+        )
+
+        self._draw_morale_bar(
+            screen,
+            e_bar_x,
+            e_bar_y + morale_y_offset,
+            self._enemy.morale,
+            "ENEMY"
+        )
 
         # Buttons
         is_player_turn = (getattr(self.engine, "turn_owner", None) == "player")
@@ -1168,13 +1765,35 @@ class CombatState:
             is_player_turn
         )
 
-        # Log
-        y = 290
-        screen.blit(self.font.render("Combat Log:", True, (220, 220, 220)), (60, y))
-        y += 24
-        for line in self.engine.log[-8:]:
-            screen.blit(self.font.render(f"- {line}", True, (190, 190, 190)), (60, y))
-            y += 20
+        # --- Stance UI ---
+        engine = self.engine
+        active = engine.stance.value
+        locked = engine._stance_changed_this_round
+
+        for key, rect in self._stance_rects.items():
+            icon = self._stance_icons.get(key)
+            if not icon:
+                continue
+
+            is_active = (key == active)
+
+            img = pygame.transform.smoothscale(icon, (rect.w, rect.h))
+
+            if locked and not is_active:
+                img.set_alpha(90)
+            elif not is_active:
+                img.set_alpha(160)
+
+            screen.blit(img, rect.topleft)
+
+            # Active frame
+            if is_active:
+                pygame.draw.rect(screen, (240, 220, 140), rect, 3, border_radius=6)
+            else:
+                pygame.draw.rect(screen, (20, 22, 30), rect, 2, border_radius=6)
+
+        # Combat log bottom-right
+        self._draw_combat_log_panel(screen)
 
         if getattr(self, "_result_showing", False):
             self._draw_result_overlay(screen)
@@ -1272,7 +1891,8 @@ class CombatState:
             flip=bool(pv.get("flip_x", False)),
             scale=1.0,  # wichtig: wir haben beim Laden schon skaliert
             fallback_color=(0, 0, 0),  # wird nicht genutzt, wenn Sprites vorhanden
-            label=self.ctx.player.ship.name if hasattr(self.ctx.player.ship, "name") else "YOU"
+            label=self.ctx.player.ship.name if hasattr(self.ctx.player.ship, "name") else "YOU",
+            key="player",
         )
 
         # Enemy
@@ -1284,7 +1904,8 @@ class CombatState:
             flip=bool(ev.get("flip_x", True)),
             scale=1.0,
             fallback_color=(0, 0, 0),
-            label=self._enemy.name.upper()
+            label=self._enemy.name.upper(),
+            key="enemy",
         )
 
 
@@ -1292,45 +1913,103 @@ class CombatState:
         self._tick_and_draw_particles(screen)
         self._tick_and_draw_float_texts(screen)
 
-    def _draw_unit(
-        self,
-        screen,
-        x: int,
-        y: int,
-        spr,
-        flip: bool,
-        scale: float,
-        fallback_color,
-        label: str
-    ) -> None:
+    def _draw_unit(self, screen, x, y, spr, flip: bool, scale: float, fallback_color, label: str, key: str) -> None:
+
+        # --- Soft shadow under unit (depth) ---
+        def _draw_shadow(cx: int, cy: int, w: int, h: int, alpha: int = 90) -> None:
+            # small surface for the shadow
+            sw = max(1, int(w * 0.75))
+            sh = max(1, int(h * 0.22))
+            surf = pygame.Surface((sw, sh), pygame.SRCALPHA)
+
+            # multi-pass ellipse = fake blur
+            for i in range(3):
+                a = max(0, alpha - i * 25)
+                inset = i * 2
+                pygame.draw.ellipse(
+                    surf,
+                    (0, 0, 0, a),
+                    pygame.Rect(inset, inset, sw - inset * 2, sh - inset * 2),
+                )
+
+            screen.blit(surf, (cx - sw // 2, cy - sh // 2))
+
         # leichte "Bobbing"-Animation
         t = float(getattr(self, "_t", 0.0))
         bob = int(math.sin(t * 2.2 + (0.0 if not flip else 1.1)) * 3.0)
 
         if spr:
-            img = spr
+            sprite = spr
             if flip:
-                img = pygame.transform.flip(img, True, False)
+                sprite = pygame.transform.flip(sprite, True, False)
 
-            if abs(scale - 1.0) > 0.01:
-                w = max(1, int(img.get_width() * scale))
-                h = max(1, int(img.get_height() * scale))
-                img = pygame.transform.smoothscale(img, (w, h))
+            # apply scale uniformly
+            if abs(scale - 1.0) > 0.001:
+                sprite = pygame.transform.smoothscale(
+                    sprite,
+                    (max(1, int(sprite.get_width() * scale)), max(1, int(sprite.get_height() * scale)))
+                )
+            r = sprite.get_rect(center=(int(x), int(y + bob)))
+            # shadow sits slightly below the ship center
+            _draw_shadow(r.centerx, r.centery + int(r.height * 0.33), r.width, r.height, alpha=95)
 
-            r = img.get_rect(center=(x, y + bob))
-            screen.blit(img, r)
+            # draw sprite
+            screen.blit(sprite, r)
+
+            # cache rect for VFX placement
+            if hasattr(self, "_unit_rects"):
+                self._unit_rects[key] = r.copy()
+
+            screen.blit(sprite, r)
         else:
-            # Fallback-Silhouette
-            pygame.draw.ellipse(screen, fallback_color, pygame.Rect(x - 90, y - 30 + bob, 180, 60))
-            pygame.draw.rect(screen, (30, 30, 35), pygame.Rect(x - 90, y - 30 + bob, 180, 60), 2)
+            rr = pygame.Rect(x - 90, y - 30 + bob, 180, 60)
+            pygame.draw.ellipse(screen, fallback_color, rr)
+            pygame.draw.rect(screen, (30, 30, 35), rr, 2)
 
-        # Label-Plate
-        plate = pygame.Rect(x - 80, y + 72, 160, 22)
-        pygame.draw.rect(screen, (18, 20, 28), plate, border_radius=6)
-        pygame.draw.rect(screen, (8, 9, 12), plate, 2, border_radius=6)
+            if hasattr(self, "_unit_rects"):
+                self._unit_rects[key] = rr.copy()
 
-        txt = self.font.render(label, True, (230, 230, 230))
-        screen.blit(txt, (plate.x + 8, plate.y + 3))
+
+        # --- Name sign (wood sign) ---
+        # Determine bottom of unit sprite to place sign below it
+        if spr:
+            unit_bottom = r.bottom
+        else:
+            # fallback ellipse: height 60 centered on (x, y+bob)
+            unit_bottom = (y + bob) + 30
+
+        if getattr(self, "_sign_empty", None) is not None:
+            sign_w, sign_h = 210, 56
+            sign = pygame.transform.smoothscale(self._sign_empty, (sign_w, sign_h))
+            sign_rect = sign.get_rect(midtop=(x, unit_bottom + 12))
+            screen.blit(sign, sign_rect)
+
+            # Render name centered on sign
+            name = str(label)
+
+            # Text color: dark ink on wood
+            txt = self.font.render(name, True, (20, 20, 20))
+
+            # Fit if too wide (simple scale-down)
+            max_w = sign_w - 24
+            if txt.get_width() > max_w and txt.get_width() > 0:
+                scale = max(0.55, max_w / float(txt.get_width()))
+                txt = pygame.transform.smoothscale(
+                    txt, (int(txt.get_width() * scale), int(txt.get_height() * scale))
+                )
+
+            tx = sign_rect.centerx - txt.get_width() // 2
+            ty = sign_rect.centery - txt.get_height() // 2
+            screen.blit(txt, (tx, ty))
+
+        else:
+            # Fallback: old dark plate if sign missing
+            plate = pygame.Rect(x - 80, unit_bottom + 12, 160, 22)
+            pygame.draw.rect(screen, (18, 20, 28), plate, border_radius=6)
+            pygame.draw.rect(screen, (8, 9, 12), plate, 2, border_radius=6)
+            txt = self.font.render(label, True, (230, 230, 230))
+            screen.blit(txt, (plate.x + 8, plate.y + 3))
+
 
     def _tick_and_draw_particles(self, screen) -> None:
         if not getattr(self, "_particles", None):
@@ -1366,8 +2045,31 @@ class CombatState:
             ft.y += ft.vy * dt
             alive.append(ft)
 
-            s = self.font.render(ft.text, True, ft.color)
-            screen.blit(s, (int(ft.x), int(ft.y)))
+            # choose font (crits bigger)
+            font = self._dmg_font_big if getattr(ft, "crit", False) else self._dmg_font
+
+            # render main + outline for readability
+            main = font.render(ft.text, True, ft.color)
+
+            # optional scaling (crit punch)
+            scale = float(getattr(ft, "scale", 1.0))
+            if abs(scale - 1.0) > 0.01:
+                main = pygame.transform.smoothscale(main, (int(main.get_width() * scale), int(main.get_height() * scale)))
+
+            outline = font.render(ft.text, True, (0, 0, 0))
+            if abs(scale - 1.0) > 0.01:
+                outline = pygame.transform.smoothscale(outline, (int(outline.get_width() * scale), int(outline.get_height() * scale)))
+
+            x = int(ft.x)
+            y = int(ft.y)
+
+            # 4-way outline (stronger than a single shadow)
+            screen.blit(outline, (x - 2, y))
+            screen.blit(outline, (x + 2, y))
+            screen.blit(outline, (x, y - 2))
+            screen.blit(outline, (x, y + 2))
+
+            screen.blit(main, (x, y))
 
         self._float_texts = alive
 
@@ -1490,7 +2192,55 @@ class CombatState:
         pygame.draw.rect(screen, (25, 28, 38), pygame.Rect(x, y, w, h), 2, border_radius=4)
 
         txt = self.font.render(f"{label}: {val}/{vmax}", True, (230, 230, 230))
-        screen.blit(txt, (x, y - 20))
+        screen.blit(txt, (x, y - 30))
+
+    def _draw_morale_bar(self, screen, x, y, morale: int, label: str):
+        if not self._morale_frame or not self._morale_fill or not self._morale_bg:
+            return
+
+        morale = max(0, min(100, int(morale)))
+        frac = morale / 100.0
+        scale = float(self._morale_scale)
+
+        # --- scale all layers once ---
+        bg_src = self._morale_bg
+        fill_src = self._morale_fill
+        frame_src = self._morale_frame
+
+        w0, h0 = frame_src.get_size()
+        w = int(w0 * scale)
+        h = int(h0 * scale)
+
+        bg = pygame.transform.smoothscale(bg_src, (w, h))
+        fill = pygame.transform.smoothscale(fill_src, (w, h))
+        frame = pygame.transform.smoothscale(frame_src, (w, h))
+
+        # --- draw BACKGROUND (always full) ---
+        screen.blit(bg, (x, y))
+
+        # --- draw FILL (clipped) ---
+        fill_w = max(1, int(w * frac))
+        fill_rect = pygame.Rect(0, 0, fill_w, h)
+        fill_surf = fill.subsurface(fill_rect)
+
+        # CORRECT grayscale fade:
+        # 50% morale -> 0% grayscale
+        # 0% morale  -> 100% grayscale
+        # desaturate below 75%
+        if morale < 75:
+            strength = morale/75
+            fill_surf = self._apply_red_tint(fill_surf, strength)
+
+
+        screen.blit(fill_surf, (x, y))
+
+        # --- draw FRAME (always on top) ---
+        screen.blit(frame, (x, y))
+
+        # --- morale text ---
+        txt = self.font.render(f"{label} MORALE: {morale}", True, (230, 230, 230))
+        screen.blit(txt, (x, y - 16))
+
 
     def _draw_button(self, screen, rect: pygame.Rect, text: str, enabled: bool, subtext: str = ""):
 
