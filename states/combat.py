@@ -399,8 +399,80 @@ class CombatEngine:
             self._remove_status(target, k)
 
 
-    # ---- Player actions ----
+    def _compute_hit_chance(self, attacker) -> float:
+        """
+        Final hit chance including morale & stance.
+        """
+        # base hit chance (simple & readable)
+        base = 0.75
 
+        # morale factor (0.5 .. 1.25)
+        morale_factor = 0.5 + (attacker.morale / 100.0) * 0.75
+
+        # stance factor
+        stance = self.stance
+        if stance.name == "OFFENSIVE":
+            stance_factor = 1.10
+        elif stance.name == "DEFENSIVE":
+            stance_factor = 0.90
+        else:
+            stance_factor = 1.0
+
+        chance = base * morale_factor * stance_factor
+        return max(0.05, min(0.95, chance))
+
+    def get_debug_combat_modifiers(self, unit):
+        """
+        Returns live combat multipliers affected by stance & morale.
+        """
+        mods = {}
+
+        # --- BASE ---
+        cannon = 1.0
+        reload = 1.0
+        boarding = 1.0
+        repair = 1.0
+        evade = 1.0
+        flee = 1.0
+
+        # --- STANCE ---
+        if self.stance.name == "OFFENSIVE":
+            cannon *= 1.20
+            boarding *= 1.15
+            repair *= 0.85
+            evade *= 0.90
+            flee *= 0.85
+
+        elif self.stance.name == "DEFENSIVE":
+            cannon *= 0.90
+            boarding *= 0.85
+            repair *= 1.20
+            evade *= 1.15
+            flee *= 1.25
+
+        # BALANCED = no change
+
+        # --- MORALE ---
+        morale = unit.morale / 100.0
+
+        cannon *= 0.75 + morale * 0.5
+        reload *= 1.25 - morale * 0.5
+        boarding *= 0.8 + morale * 0.4
+        repair *= 0.7 + morale * 0.6
+        evade *= 0.8 + morale * 0.4
+        flee *= 1.3 - morale * 0.6
+
+        mods["Cannon Damage"] = cannon
+        mods["Reload Speed"] = reload
+        mods["Boarding Damage"] = boarding
+        mods["Repair Power"] = repair
+        mods["Evade"] = evade
+        mods["Flee"] = flee
+
+        return mods
+
+
+    # ---- Player actions ----
 
     def _roll_initiative(self, base: float) -> float:
         # kleine, faire Varianz pro Runde (±8%)
@@ -428,6 +500,35 @@ class CombatEngine:
 
     def _fire(self, attacker: CombatantRuntime, defender: CombatantRuntime, mult: float) -> dict:
         mods = self._stance_modifiers()
+
+        # --- HIT CHECK ---
+        hit_chance = self._compute_hit_chance(attacker)
+        hit_roll = random.random()
+        hit = hit_roll < hit_chance
+
+        if not hit:
+            # morale loss on miss
+            morale_loss = 6
+
+            # offensive stance -> more morale punishment
+            if self.stance.name == "OFFENSIVE":
+                morale_loss += 4
+
+            attacker.morale = max(0, attacker.morale - morale_loss)
+
+            self.add_log(
+                f"{attacker.name} missed! "
+                f"(hit {hit_chance:.2f}, roll {hit_roll:.2f})"
+            )
+
+            self._advance_turn()
+            return {
+                "result": "miss",
+                "hull": 0,
+                "applied": [],
+                "hit_chance": hit_chance,
+                "roll": hit_roll,
+            }
 
         """
         Feste Damage-Auflösung (verbindliche Reihenfolge, keine Sonderfälle):
@@ -485,6 +586,7 @@ class CombatEngine:
 
         defender.morale = max(0, min(100, defender.morale))
         attacker.morale = max(0, min(100, attacker.morale))
+
 
         # morale tier change feedback
         for key, unit in (("player", attacker), ("enemy", defender)):
@@ -1800,6 +1902,48 @@ class CombatState:
             t = self.font.render("ENTER / Click to continue", True, (170, 170, 170))
 
         self._draw_reveal_overlay(screen)
+
+        # --- DEBUG COMBAT STATS ---
+        # --- Combat debug panel (left of combat log) ---
+        log_rect = self._log_panel_rect
+
+        dbg_w = 320
+        dbg_h = log_rect.height
+        dbg_x = log_rect.left - dbg_w - 12
+        dbg_y = log_rect.top
+
+        self._draw_debug_panel(screen, dbg_x, dbg_y, dbg_w, dbg_h)
+        self._draw_combat_debug(screen, dbg_x, dbg_y)
+
+    def _draw_debug_panel(self, screen, x, y, w, h):
+        panel = pygame.Surface((w, h), pygame.SRCALPHA)
+        panel.fill((0, 0, 0, 160))
+        pygame.draw.rect(panel, (40, 40, 40), panel.get_rect(), 2, border_radius=6)
+        screen.blit(panel, (x, y))
+
+    def _draw_combat_debug(self, screen, x, y):
+        mods = self.engine.get_debug_combat_modifiers(self.engine.p)
+        #mods = self.engine.get_debug_combat_modifiers(self.engine.e)  TITEL ÄNDERN
+        hit_chance = self.engine._compute_hit_chance(self.engine.p)
+
+        line_h = 18
+        cur_y = y + 10
+
+        title = self.font.render("PLAYER MODIFIERS", True, (230, 230, 230))
+        hc_txt = f"Hit Chance: x{hit_chance:.2f} ({int((hit_chance - 1) * 100):+d}%)"
+        surf = self.font.render(hc_txt, True, (240, 220, 180))
+        screen.blit(surf, (x + 10, cur_y))
+        cur_y += 20
+
+        screen.blit(title, (x + 10, cur_y))
+        cur_y += 22
+
+        for name, value in mods.items():
+            pct = int((value - 1.0) * 100)
+            txt = f"{name:<18} x{value:.2f} ({pct:+d}%)"
+            surf = self.font.render(txt, True, (210, 210, 210))
+            screen.blit(surf, (x + 10, cur_y))
+            cur_y += line_h
 
     def _draw_reveal_overlay(self, screen: pygame.Surface) -> None:
         if not getattr(self, "_reveal", None):
