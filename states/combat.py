@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from data.loader import EnemyDef
 from settings import TIME_SCALE_1X, TIME_SCALE_2X, TIME_SCALE_4X
 from enum import Enum
+from typing import Optional, Dict, Callable, Tuple
 
 
 # -----------------------------
@@ -59,6 +60,17 @@ class CombatantRuntime:
     # Morale
     morale: int = 100  # 0..100
 
+@dataclass
+class AbilitySpec:
+    id: str
+    name: str
+    cooldown_rounds: int = 0
+    morale_cost: int = 0       # subtract on use
+    morale_delta: int = 0      # add/subtract on use
+
+    # returns (ok, reason)
+    can_use: Optional[Callable[["CombatEngine", str], Tuple[bool, str]]] = None
+    execute: Optional[Callable[["CombatEngine", str, dict], dict]] = None
 
 @dataclass
 class _FloatText:
@@ -80,6 +92,20 @@ class _Particle:
     ttl: float
     size: int
     color: tuple[int, int, int]
+
+@dataclass
+class AbilitySpec:
+    id: str
+    name: str
+    cooldown_rounds: int = 0
+
+    # morale handling
+    morale_cost: int = 0          # subtract on use
+    morale_delta: int = 0         # add (or subtract) on use
+
+    # conditions + execution
+    can_use: Optional[Callable[["CombatEngine", str], Tuple[bool, str]]] = None
+    execute: Optional[Callable[["CombatEngine", str], dict]] = None
 
 class CombatEngine:
     """
@@ -111,6 +137,12 @@ class CombatEngine:
         self._turn_queue: list[str] = []
         self.last_initiative: dict = {"player": 0.0, "enemy": 0.0}
 
+        # --- Abilities / cooldowns (C1.1) ---
+        self._abilities: dict[str, AbilitySpec] = {}
+        self._cd: dict[str, dict[str, int]] = {"player": {}, "enemy": {}}
+
+        self._register_base_abilities()
+
         # --- Combat Stance ---
         self.stance: CombatStance = CombatStance.BALANCED
         self._stance_changed_this_round: bool = False
@@ -120,6 +152,11 @@ class CombatEngine:
             "enemy": self._morale_tier(self.e.morale),
         }
 
+        # --- Abilities / cooldowns (C1) ---
+        self._abilities: dict[str, AbilitySpec] = {}
+        self._cd: dict[str, dict[str, int]] = {"player": {}, "enemy": {}}
+
+        self._register_base_abilities()
 
 
     def pop_event(self) -> Optional[dict]:
@@ -132,6 +169,155 @@ class CombatEngine:
         if not hasattr(self, "_events") or self._events is None:
             self._events = []
         self._events.append(ev)
+
+    def _register_base_abilities(self) -> None:
+        self.register_ability(AbilitySpec(
+            id="fire",
+            name="Fire",
+            cooldown_rounds=0,
+            can_use=None,
+            execute=lambda eng, side, ctx: eng._ability_fire(side, ctx),
+        ))
+
+        self.register_ability(AbilitySpec(
+            id="repair",
+            name="Repair",
+            cooldown_rounds=1,
+            can_use=lambda eng, side: (eng.p.hp < eng.p.hp_max, "full_hp"),
+            execute=lambda eng, side, ctx: eng._ability_repair(side)
+        ))
+
+        self.register_ability(AbilitySpec(
+            id="flee",
+            name="Flee",
+            cooldown_rounds=2,
+            can_use=None,
+            execute=lambda eng, side, ctx: eng._ability_flee(side, ctx),
+        ))
+
+    def register_ability(self, spec: AbilitySpec) -> None:
+        self._abilities[spec.id] = spec
+        for s in ("player", "enemy"):
+            self._cd[s].setdefault(spec.id, 0)
+
+    def can_use_ability(self, ability_id: str, side: str) -> tuple[bool, str]:
+        if self.finished:
+            return False, "finished"
+        if side not in ("player", "enemy"):
+            return False, "bad_side"
+        if ability_id not in self._abilities:
+            return False, "unknown"
+        if self.turn_owner != side:
+            return False, "not_your_turn"
+
+        spec = self._abilities[ability_id]
+
+        if self._cd[side].get(ability_id, 0) > 0:
+            return False, "cooldown"
+
+        actor = self.p if side == "player" else self.e
+        if spec.morale_cost > 0 and actor.morale < spec.morale_cost:
+            return False, "low_morale"
+
+        if spec.can_use:
+            ok, reason = spec.can_use(self, side)
+            if not ok:
+                return False, reason
+
+        return True, ""
+
+    def use_ability(self, ability_id: str, side: str, ctx: Optional[dict] = None) -> Optional[dict]:
+        ok, reason = self.can_use_ability(ability_id, side)
+        if not ok:
+            if side == "player":
+                self.add_log(f"{ability_id.upper()} not available ({reason}).")
+            return None
+
+        spec = self._abilities.get(ability_id)
+        if not spec:
+            return None
+
+        if ctx is None:
+            ctx = {}
+
+        actor = self.p if side == "player" else self.e
+
+        # morale cost/effect
+        if spec.morale_cost:
+            actor.morale = max(0, actor.morale - int(spec.morale_cost))
+        if spec.morale_delta:
+            actor.morale = max(0, min(100, actor.morale + int(spec.morale_delta)))
+
+        # 🔧 SICHERER EXECUTE
+        if spec.execute:
+            res = spec.execute(self, side, ctx)
+        else:
+            res = {"result": "noop"}
+
+        # cooldown
+        if spec.cooldown_rounds > 0:
+            self._cd[side][ability_id] = int(spec.cooldown_rounds)
+
+        return res
+
+
+
+    def _ability_fire(self, side: str) -> dict:
+        attacker = self.p if side == "player" else self.e
+        defender = self.e if side == "player" else self.p
+        return self._fire(attacker=attacker, defender=defender, mult=1.0)
+
+    def _ability_fire(self, side: str, ctx: dict) -> dict:
+        if self.finished:
+            return {"result": "finished"}
+
+        if side not in ("player", "enemy"):
+            return {"result": "bad_side"}
+
+        # turn ownership check: only enforce for player; enemy auto-actions can bypass if you want
+        if side == "player" and self.turn_owner != "player":
+            return {"result": "no_turn"}
+
+        attacker = self.p if side == "player" else self.e
+        defender = self.e if side == "player" else self.p
+
+        mult = float(ctx.get("mult", 1.0))
+        res = self._fire(attacker=attacker, defender=defender, mult=mult)
+
+        # emit event for both sides
+        self.add_event({
+            "type": "fire",
+            "side": side,
+            "result": res.get("result"),
+            "hull": int(res.get("hull", 0)),
+            "applied": list(res.get("applied", [])),
+        })
+
+        if side == "player":
+            self.add_log(f"You fire: -{int(res.get('hull', 0))} hull.")
+        else:
+            self.add_log(f"Enemy fires: -{int(res.get('hull', 0))} hull.")
+
+        if self._check_finish():
+            self._stop_turns()
+            return {"result": "finished", **res}
+
+        return {"result": "ok", **res}
+
+
+    def _ability_flee(self, side: str) -> dict:
+        if side != "player":
+            return {"result": "blocked"}
+
+        chance = 0.45
+        roll = random.random()
+        ok = (roll < chance)
+
+        if ok:
+            self.finished = True
+            self.outcome = "flee"
+            self.rewards = {}
+            return {"result": "ok", "chance": chance, "roll": roll}
 
     def _morale_tier(self, morale: int) -> str:
         if morale >= 80:
@@ -177,79 +363,276 @@ class CombatEngine:
             "panic_fail": 0.0,
         }
 
+    def get_live_combat_multipliers(self, unit):
+        """
+        SINGLE SOURCE OF TRUTH.
+        All combat systems must use this.
+        """
 
-    def player_fire(self) -> bool:
-        # Unified turn-based API (keine Legacy await/turn mehr)
+        # --- STANCE ---
+        stance_damage = 1.0
+        stance_repair = 1.0
+        stance_hit = 1.0
+        stance_flee = 1.0
+
+        if self.stance.name == "OFFENSIVE":
+            stance_damage = 1.20
+            stance_hit = 1.10
+            stance_repair = 0.85
+            stance_flee = 0.85
+
+        elif self.stance.name == "DEFENSIVE":
+            stance_damage = 0.90
+            stance_hit = 0.90
+            stance_repair = 1.20
+            stance_flee = 1.25
+
+        # --- MORALE ---
+        morale = unit.morale / 100.0
+
+        morale_damage = 0.75 + morale * 0.5
+        morale_hit = 0.5 + morale * 0.75
+        morale_repair = 0.7 + morale * 0.6
+        morale_flee = 1.3 - morale * 0.6
+        # --- PANIC FAIL (used by player_repair) ---
+        panic_fail = 0.0
+        if unit.morale < 20:
+            # 20 morale -> 0%, 0 morale -> 50%
+            panic_fail = (20 - unit.morale) / 20.0 * 0.50
+
+        return {
+            "damage": stance_damage * morale_damage,
+            "hit": stance_hit * morale_hit,
+            "repair": stance_repair * morale_repair,
+            "flee": stance_flee * morale_flee,
+            "panic_fail": panic_fail,
+        }
+
+    def _compute_enemy_pressure(self) -> float:
+        """
+        0.00 .. 0.35 typical.
+        Higher = harder to flee.
+        """
+        hp_frac = 0.0
+        if self.e.hp_max > 0:
+            hp_frac = max(0.0, min(1.0, self.e.hp / self.e.hp_max))
+
+        morale_frac = max(0.0, min(1.0, self.e.morale / 100.0))
+
+        # weighted pressure
+        return 0.20 * hp_frac + 0.15 * morale_frac
+
+    def _compute_flee_chance(self) -> float:
+        base = 0.20  # not a panic exit
+
+        # morale contribution: -0.10 .. +0.20
+        m = max(0.0, min(1.0, self.p.morale / 100.0))
+        morale_term = -0.10 + 0.30 * m
+
+        # stance contribution
+        if self.stance.name == "DEFENSIVE":
+            stance_term = +0.10
+        elif self.stance.name == "OFFENSIVE":
+            stance_term = -0.08
+        else:
+            stance_term = 0.0
+
+        pressure = self._compute_enemy_pressure()
+
+        chance = base + morale_term + stance_term - pressure
+        return max(0.05, min(0.85, chance))
+
+    def _apply_low_morale_flee_penalty(self) -> dict:
+        """
+        Returns penalty dict (for UI/log). Does not assume economy model.
+        """
+        if self.p.morale >= 20:
+            return {"penalty": None}
+
+        # chance grows as morale drops: 20 -> 0.25, 0 -> 0.60
+        t = (20 - self.p.morale) / 20.0
+        chance = 0.25 + 0.35 * t
+
+        if random.random() >= chance:
+            return {"penalty": None}
+
+        # penalty is abstract (hook)
+        return {"penalty": "crew_scatter", "chance": chance}
+
+
+    def _ability_fire(self, side: str) -> dict:
+        # Only player fire for now (enemy can get its own ability later)
+        if side != "player":
+            return {"result": "blocked"}
+
         if self.finished or self.turn_owner != "player":
-            return False
+            return {"result": "no_turn"}
 
         res = self._fire(attacker=self.p, defender=self.e, mult=1.0)
-        self.add_event({"type": "fire", "side": "player", "result": res.get("result"), "hull": int(res.get("hull", 0)), "applied": list(res.get("applied", []))})
+
+        # event/log exactly like old player_fire
+        self.add_event({
+            "type": "fire",
+            "side": "player",
+            "result": res.get("result"),
+            "hull": int(res.get("hull", 0)),
+            "applied": list(res.get("applied", [])),
+        })
         self.add_log(f"You fire: -{int(res.get('hull', 0))} hull.")
 
+        # end combat if needed (same behavior)
         if self._check_finish():
             self._stop_turns()
-            return True
+            return {"result": "finished", **res}
 
-        self._advance_turn()
+        return {"result": "ok", **res}
+    
+    def player_fire(self) -> bool:
+        res = self.use_ability("fire", "player")
+        if not res:
+            return False
+
+        # if combat ended inside executor, don't advance turn
+        if not self.finished:
+            self._advance_turn()
         return True
-
 
     def player_attack(self) -> bool:
         # Backward compatibility: route to player_fire()
         return self.player_fire()
 
-
     def player_repair(self) -> bool:
+        res = self.use_ability("repair", "player")
+        if not res:
+            return False
 
-        mods = self._morale_modifiers(self.p.morale)
-
-        # panic check
-        if mods["panic_fail"] > 0.0 and random.random() < mods["panic_fail"]:
-            self.add_log("Repair failed due to panic!")
+        # action consumed unless combat ended (repair doesn't end combat)
+        if not self.finished:
             self._advance_turn()
-            return False
-
-        if self.finished or self.turn_owner != "player":
-            return False
-
-        # nur wenn nicht full hp
-        if self.p.hp >= self.p.hp_max:
-            return False
-
-        # kleine feste Heilung (Phase 2), später scaling
-        amount = max(1, int(round(self.p.hp_max * 0.12)))
-        amount = int(amount * mods["repair"])
-        amount = max(1, amount)
-        self.p.hp = min(self.p.hp_max, self.p.hp + amount)
-        self.add_event({"type": "repair", "side": "player", "amount": amount})
-
-        self._advance_turn()
         return True
 
+
     def player_flee(self) -> bool:
-        if self.finished or self.turn_owner != "player":
+        res = self.use_ability("flee", "player")
+        if not res:
             return False
-        # Phase 2: 50/50 oder konstant 35% je nach tier
-        stance_mods = self._stance_modifiers()
-        morale_mods = self._morale_modifiers(self.p.morale)
 
-        chance = 0.45
-        chance *= stance_mods["flee"]
-        chance *= morale_mods["flee"]
-        chance = max(0.05, min(0.95, chance))
+        # If flee succeeded, combat already ended inside executor.
+        if res.get("result") != "success" and not self.finished:
+            self._advance_turn()
 
-        ok = (random.random() < chance)
-        self.add_event({"type": "flee", "side": "player", "ok": ok})
-        if ok:
+        return True
+  
+    def _ability_repair(self, side: str, ctx: dict) -> dict:
+        if side != "player":
+            return {"result": "blocked"}
+
+        if self.finished or self.turn_owner != "player":
+            return {"result": "no_turn"}
+
+        mods = self.get_live_combat_multipliers(self.p)
+
+        # panic check
+        panic = float(mods.get("panic_fail", 0.0))
+        if panic > 0.0 and random.random() < panic:
+            self.add_log("Repair failed due to panic!")
+            self.p.morale = max(0, self.p.morale - 4)
+            return {"result": "panic_fail", "heal": 0}
+
+        # success roll
+        success_chance = self._compute_repair_success(self.p)
+        roll = random.random()
+        success = roll < success_chance
+
+        base_heal = int(round(self.p.hp_max * 0.10))
+        base_heal = max(3, base_heal)
+
+        heal = int(round(base_heal * float(mods.get("repair", 1.0))))
+
+        stress_loss = 5
+        if self.stance.name == "OFFENSIVE":
+            stress_loss += 3
+        elif self.stance.name == "DEFENSIVE":
+            stress_loss -= 1
+        stress_loss = max(2, stress_loss)
+
+        applied_heal = 0
+        if success:
+            old_hp = self.p.hp
+            self.p.hp = min(self.p.hp_max, self.p.hp + heal)
+            applied_heal = self.p.hp - old_hp
+            self.add_log(f"Repair succeeded (+{applied_heal} HP) (p={success_chance:.2f}, r={roll:.2f})")
+            self.p.morale = min(100, self.p.morale + 1)
+        else:
+            self.add_log(f"Repair failed (p={success_chance:.2f}, r={roll:.2f})")
+            self.p.morale = max(0, self.p.morale - 4)
+
+        self.p.morale = max(0, self.p.morale - stress_loss)
+
+        # chip shot
+        self.use_ability("fire", "enemy", {"mult": 0.35})
+        chip_res = self.use_ability("fire", "enemy", {"mult": 0.35})
+
+
+        return {
+            "result": "success" if success else "fail",
+            "heal": applied_heal,
+            "p": success_chance,
+            "r": roll,
+            "chip": {
+                "result": chip_res.get("result") if chip_res else None,
+                "hull": int(chip_res.get("hull", 0)) if chip_res else 0
+            }
+
+        }
+
+    def _ability_flee(self, side: str, ctx: dict) -> dict:
+        if side != "player":
+            return {"result": "blocked"}
+
+        if self.finished or self.turn_owner != "player":
+            return {"result": "no_turn"}
+
+        chance = self._compute_flee_chance()
+        roll = random.random()
+        success = roll < chance
+
+        if success:
+            penalty = self._apply_low_morale_flee_penalty()
+
+            if penalty.get("penalty"):
+                self.add_log(f"Flee succeeded, but chaos ensued ({penalty['penalty']})!")
+                self.add_event({"type": "flee_penalty", **penalty})
+            else:
+                self.add_log("Flee succeeded!")
+
+            self.add_log(f"(p={chance:.2f}, r={roll:.2f})")
+
             self.finished = True
-            self.outcome = "flee"
-            self.rewards = {}
-            return True
+            self.result = {"outcome": "fled"}
+            self._stop_turns()
 
-        # miss flee kostet turn
-        self._advance_turn()
-        return False
+            return {"result": "success", "p": chance, "r": roll, "penalty": penalty}
+
+        # failure
+        self.add_log(f"Flee failed! (p={chance:.2f}, r={roll:.2f})")
+        self.p.morale = max(0, self.p.morale - 8)
+
+        self.use_ability("fire", "enemy", {"mult": 0.60})
+
+
+        chip_res = self.use_ability("fire", "enemy", {"mult": 0.60})
+
+        return {
+            "result": "fail",
+            "p": chance,
+            "r": roll,
+            "chip": {
+                "result": chip_res.get("result") if chip_res else None,
+                "hull": int(chip_res.get("hull", 0)) if chip_res else 0
+            }
+        }
+
 
     def _compute_rewards(self) -> dict:
         # sauber am neuen Modell orientiert
@@ -399,27 +782,21 @@ class CombatEngine:
             self._remove_status(target, k)
 
 
-    def _compute_hit_chance(self, attacker) -> float:
-        """
-        Final hit chance including morale & stance.
-        """
-        # base hit chance (simple & readable)
+    def _compute_hit_chance(self, attacker):
         base = 0.75
+        mods = self.get_live_combat_multipliers(attacker)
 
-        # morale factor (0.5 .. 1.25)
-        morale_factor = 0.5 + (attacker.morale / 100.0) * 0.75
-
-        # stance factor
-        stance = self.stance
-        if stance.name == "OFFENSIVE":
-            stance_factor = 1.10
-        elif stance.name == "DEFENSIVE":
-            stance_factor = 0.90
-        else:
-            stance_factor = 1.0
-
-        chance = base * morale_factor * stance_factor
+        chance = base * mods["hit"]
         return max(0.05, min(0.95, chance))
+
+    def _compute_repair_success(self, unit: CombatantRuntime) -> float:
+        """
+        Repair success chance based on morale.
+        0..100 morale -> 0.35..0.90
+        """
+        m = max(0, min(100, int(unit.morale))) / 100.0
+        chance = 0.35 + 0.55 * m
+        return max(0.10, min(0.95, chance))
 
     def get_debug_combat_modifiers(self, unit):
         """
@@ -497,9 +874,14 @@ class CombatEngine:
         self.turn_owner = self._turn_queue[0]
         self.add_log(f"Round {self.round_index}: init P={ip:.2f} vs E={ie:.2f} → {self.turn_owner} first")
 
+        # --- tick ability cooldowns (C1.1) ---
+        for side in ("player", "enemy"):
+            for aid, cd in list(self._cd[side].items()):
+                if cd > 0:
+                    self._cd[side][aid] = cd - 1
 
     def _fire(self, attacker: CombatantRuntime, defender: CombatantRuntime, mult: float) -> dict:
-        mods = self._stance_modifiers()
+        mods = self.get_live_combat_multipliers(attacker)
 
         # --- HIT CHECK ---
         hit_chance = self._compute_hit_chance(attacker)
@@ -548,8 +930,7 @@ class CombatEngine:
 
         # 2) Crit check
         cc = float(attacker.crit_chance)
-        morale_mods = self._morale_modifiers(attacker.morale)
-        cc *= morale_mods["hit"]
+        cc *= mods["hit"]
         cc = max(0.0, min(1.0, cc))
         cm = float(attacker.crit_multiplier)
         is_crit = (random.random() < max(0.0, min(1.0, cc)))
@@ -568,7 +949,7 @@ class CombatEngine:
 
         # 6) Convert armor% into multiplier (positive reduces, negative amplifies)
         # Beispiel: 30 armor -> 0.70 dmg, -20 armor -> 1.20 dmg
-        dmg_mult_from_armor = 1.0 - (effective_armor / 100.0)
+        dmg_mult_from_armor = max(0.1, 1.0 - (effective_armor / 100.0))
 
         # final damage (mult bleibt als hook, aber keine Sonderfälle)
         dmg = int(round(base * float(mult) * dmg_mult_from_armor * mods["damage"]))
@@ -583,6 +964,7 @@ class CombatEngine:
         else:
             defender.morale -= 4
             attacker.morale += 2
+
 
         defender.morale = max(0, min(100, defender.morale))
         attacker.morale = max(0, min(100, attacker.morale))
@@ -1922,15 +2304,63 @@ class CombatState:
         screen.blit(panel, (x, y))
 
     def _draw_combat_debug(self, screen, x, y):
-        mods = self.engine.get_debug_combat_modifiers(self.engine.p)
+
+        panel_width = 320
+        panel_padding = 10
+        line_height = 20
+        cur_y = y + panel_padding
+        panel_rect = pygame.Rect(x, y, panel_width, 260)
+
+        panel_surf = pygame.Surface(panel_rect.size, pygame.SRCALPHA)
+        panel_surf.fill((0, 0, 0, 170))  # transparent black
+        screen.blit(panel_surf, panel_rect.topleft)
+
+        def draw_line(text):
+            nonlocal cur_y
+
+            words = text.split(" ")
+            line = ""
+
+            for word in words:
+                test_line = line + word + " "
+                text_width = self.font.size(test_line)[0]
+
+                if text_width > panel_width - panel_padding * 2:
+                    surf = self.font.render(line, True, (220, 220, 220))
+                    screen.blit(surf, (x + panel_padding, cur_y))
+                    cur_y += line_height
+                    line = word + " "
+                else:
+                    line = test_line
+
+            if line:
+                surf = self.font.render(line, True, (220, 220, 220))
+                screen.blit(surf, (x + panel_padding, cur_y))
+                cur_y += line_height
+
+        cur_y = y + 8
+        line_h = 18
+
+        mods = self.engine.get_live_combat_multipliers(self.engine.p)
         #mods = self.engine.get_debug_combat_modifiers(self.engine.e)  TITEL ÄNDERN
         hit_chance = self.engine._compute_hit_chance(self.engine.p)
+        rep_p = self.engine._compute_repair_success(self.engine.p)
 
         line_h = 18
         cur_y = y + 10
+        #flee chance + pressure (pressure is the main driver of flee chance, so good to see them together)
+        fc = self.engine._compute_flee_chance()
+        pr = self.engine._compute_enemy_pressure()
+        surf = self.font.render(f"Flee Chance: {fc*100:5.1f}%  (pressure {pr:.2f})", True, (230, 230, 230))
+        screen.blit(surf, (x + 10, cur_y))
+        cur_y += 18
+
 
         title = self.font.render("PLAYER MODIFIERS", True, (230, 230, 230))
-        hc_txt = f"Hit Chance: x{hit_chance:.2f} ({int((hit_chance - 1) * 100):+d}%)"
+        base_hit = 0.75
+        hit_mult = float(mods.get("hit", 1.0))
+        hc_txt = f"Hit Chance: {hit_chance*100:5.1f}%   (base {base_hit*100:.0f}% × x{hit_mult:.2f})"
+
         surf = self.font.render(hc_txt, True, (240, 220, 180))
         screen.blit(surf, (x + 10, cur_y))
         cur_y += 20
@@ -1938,12 +2368,20 @@ class CombatState:
         screen.blit(title, (x + 10, cur_y))
         cur_y += 22
 
-        for name, value in mods.items():
-            pct = int((value - 1.0) * 100)
-            txt = f"{name:<18} x{value:.2f} ({pct:+d}%)"
-            surf = self.font.render(txt, True, (210, 210, 210))
-            screen.blit(surf, (x + 10, cur_y))
-            cur_y += line_h
+        draw_line("PLAYER MODIFIERS")
+
+        for name in ("damage", "hit", "repair", "flee", "panic_fail"):
+            value = float(mods.get(name, 0.0))
+
+            if name == "panic_fail":
+                txt = f"{name:<12}: {value*100:5.1f}%"
+            else:
+                pct = int((value - 1.0) * 100)
+                txt = f"{name:<12}: x{value:.2f} ({pct:+d}%)"
+
+            draw_line(txt)
+
+
 
     def _draw_reveal_overlay(self, screen: pygame.Surface) -> None:
         if not getattr(self, "_reveal", None):
