@@ -1344,6 +1344,26 @@ class CombatState:
         # --- Morale bar sizing (UI scale) ---
         self._morale_scale = 0.18   # 60% der Originalgröße
 
+        # --- HP UI assets (4-layer) ---
+        try:
+            base = os.path.join("assets", "ui", "hp")
+            self._hp_bg = pygame.image.load(os.path.join(base, "hp_bg.png")).convert_alpha()
+            self._hp_fill = pygame.image.load(os.path.join(base, "hp_fill.png")).convert_alpha()
+            self._hp_frame = pygame.image.load(os.path.join(base, "hp_frame.png")).convert_alpha()
+            self._hp_glow = pygame.image.load(os.path.join(base, "hp_glow.png")).convert_alpha()
+            self._hp_cache = {}  # cache scaled layers by width
+        except Exception:
+            self._hp_bg = None
+            self._hp_fill = None
+            self._hp_frame = None
+            self._hp_glow = None
+            self._hp_cache = {}
+
+        # --- HP glow animation ---
+        self._hp_glow_t = 0.0
+        self._hp_glow_alpha_cache = {}  # (w, alpha) -> glow_surface
+
+
     def _resolve_player_visual(self) -> dict:
         ship = self.ctx.player.ship
         shipdef = self.ctx.content.ships.get(ship.id)
@@ -1895,6 +1915,9 @@ class CombatState:
         # 1) Engine tick (Turn-Logik + Events)
         if getattr(self, "engine", None) is None:
             return
+        # HP glow timer (resets on HP change, animates glow alpha)
+        if hasattr(self, "_hp_glow_t"):
+            self._hp_glow_t += float(dt)
 
         #bobbing
         self._t = float(getattr(self, "_t", 0.0)) + float(dt)
@@ -2180,7 +2203,10 @@ class CombatState:
         return out
 
     def render(self, screen: pygame.Surface) -> None:
-        
+        HP_TEXT_GAP = -70
+        MORALE_TEXT_GAP = 2
+        HP_TO_MORALE_GAP = -85   # <- “nur wenige Pixel” zwischen HP-Bar und Morale-Text)
+
         # responsive layout each frame
         self._layout_ui(screen)
 
@@ -2252,14 +2278,14 @@ class CombatState:
         e_h = self._spr_enemy.get_height() if getattr(self, "_spr_enemy", None) else 60
 
         bar_w = 310  # half of 620
-        bar_h = 18
+        bar_h = self._hp_height_for_width(bar_w) if getattr(self, "_hp_bg", None) else 18
         lift = 60  # distance above the sprite
 
         p_bar_x = p_cx - bar_w // 2
-        p_bar_y = max(10, int(p_cy - (p_h * 0.5) - lift))
+        p_bar_y = max(10, int(p_cy - (p_h * 0.5) - lift)-150)
 
         e_bar_x = e_cx - bar_w // 2
-        e_bar_y = max(10, int(e_cy - (e_h * 0.5) - lift))
+        e_bar_y = max(10, int(e_cy - (e_h * 0.5) - lift)-150)
 
         # --- HP + Status: shared panel (covers text + bar + status), status below HP ---
         panel_pad = 8
@@ -2273,51 +2299,46 @@ class CombatState:
         p_status_y = p_bar_y + bar_h + gap_status
         e_status_y = e_bar_y + bar_h + gap_status
 
-        def _hp_panel(x_left: int, bar_y: int, status_y: int) -> None:
-            # Panel covers: label above bar + bar + status below
-            top = bar_y - label_h - 26
-            bottom = status_y + status_h + 6 + int(40 * self._morale_scale) 
-            h = max(1, bottom - top)
+        def _hp_panel(x_left: int, hp_bar_y: int, morale_bar_y: int) -> None:
+            font_h = self.font.get_height()
+
+            top = (hp_bar_y - font_h - HP_TEXT_GAP) - panel_pad
+            bottom = (morale_bar_y + morale_h) + panel_pad
+
             w = bar_w + panel_pad * 2
+            h = max(1, bottom - top)
 
-            # rounded transparent background
             surf = pygame.Surface((w, h), pygame.SRCALPHA)
-            pygame.draw.rect(
-                surf,
-                (0, 0, 0, panel_alpha),   # transparent black
-                pygame.Rect(0, 0, w, h),
-                border_radius=14
-            )
-
+            pygame.draw.rect(surf, (0, 0, 0, panel_alpha), surf.get_rect(), border_radius=14)
             screen.blit(surf, (x_left - panel_pad, top))
 
 
-        _hp_panel(p_bar_x, p_bar_y, p_status_y)
-        _hp_panel(e_bar_x, e_bar_y, e_status_y)
+
+        # --- Compact stacking: Morale text sits just a few pixels under HP bar ---
+        font_h = self.font.get_height()
+
+        # morale bar height (needed for panel sizing)
+        if self._morale_frame:
+            morale_h = int(self._morale_frame.get_height() * float(self._morale_scale))
+        else:
+            morale_h = 18
+
+        # Place the morale BAR so that its LABEL is only HP_TO_MORALE_GAP pixels below the HP bar.
+        # Label is drawn at (y - font_h - MORALE_TEXT_GAP) inside _draw_morale_bar.
+        morale_bar_y = p_bar_y + bar_h + HP_TO_MORALE_GAP + font_h + MORALE_TEXT_GAP
+        enemy_morale_bar_y = e_bar_y + bar_h + HP_TO_MORALE_GAP + font_h + MORALE_TEXT_GAP
+
+        _hp_panel(p_bar_x, p_bar_y, morale_bar_y)
+        _hp_panel(e_bar_x, e_bar_y, enemy_morale_bar_y)
 
         # HP bars (label is typically drawn by _draw_bar)
         self._draw_bar(screen, p_bar_x, p_bar_y, bar_w, bar_h,
-                    self._player.hp, self._player.hp_max, "Your HP")
+                    self._player.hp, self._player.hp_max, "Your HP", text_gap=HP_TEXT_GAP)
         self._draw_bar(screen, e_bar_x, e_bar_y, bar_w, bar_h,
-                    self._enemy.hp, self._enemy.hp_max, "Enemy HP")
-        # --- Morale bars INSIDE HP panels ---
-        morale_y_offset = bar_h + 8
+                    self._enemy.hp, self._enemy.hp_max, "Enemy HP", text_gap=HP_TEXT_GAP)
 
-        self._draw_morale_bar(
-            screen,
-            p_bar_x,
-            p_bar_y + morale_y_offset,
-            self._player.morale,
-            "YOUR"
-        )
-
-        self._draw_morale_bar(
-            screen,
-            e_bar_x,
-            e_bar_y + morale_y_offset,
-            self._enemy.morale,
-            "ENEMY"
-        )
+        self._draw_morale_bar(screen, p_bar_x, morale_bar_y, self._player.morale, "YOUR", text_gap=MORALE_TEXT_GAP)
+        self._draw_morale_bar(screen, e_bar_x, enemy_morale_bar_y, self._enemy.morale, "ENEMY", text_gap=MORALE_TEXT_GAP)
 
         # Buttons
         is_player_turn = (getattr(self.engine, "turn_owner", None) == "player")
@@ -2867,20 +2888,99 @@ class CombatState:
             pygame.draw.line(screen, (75, 55, 35), (x + 2, y + 4), (x + 12, y + 4), 1)
             pygame.draw.line(screen, (75, 55, 35), (x + 2, y + 9), (x + 12, y + 9), 1)
 
+    def _hp_scaled_layers(self, target_w: int):
+        """Return (bg, fill, frame, glow, h) scaled to target_w, cached."""
+        if not self._hp_bg or not self._hp_fill or not self._hp_frame or not self._hp_glow:
+            return None
 
-    def _draw_bar(self, screen, x, y, w, h, val, vmax, label):
+        target_w = max(1, int(target_w))
+        cached = self._hp_cache.get(target_w)
+        if cached:
+            return cached
+
+        # scale by width, keep aspect ratio based on bg
+        bw, bh = self._hp_bg.get_size()
+        s = target_w / float(bw)
+        target_h = max(1, int(round(bh * s)))
+
+        bg = pygame.transform.smoothscale(self._hp_bg, (target_w, target_h))
+        fill = pygame.transform.smoothscale(self._hp_fill, (target_w, target_h))
+        frame = pygame.transform.smoothscale(self._hp_frame, (target_w, target_h))
+        glow = pygame.transform.smoothscale(self._hp_glow, (target_w, target_h))
+
+        self._hp_cache[target_w] = (bg, fill, frame, glow, target_h)
+        return self._hp_cache[target_w]
+
+    def _hp_height_for_width(self, target_w: int) -> int:
+        layers = self._hp_scaled_layers(target_w)
+        if not layers:
+            return 18
+        return int(layers[4])
+
+    def _draw_bar(self, screen, x, y, w, h, val, vmax, label, text_gap: int = 2):
+
         vmax = max(1, int(vmax))
         val = max(0, min(int(val), vmax))
         frac = val / vmax
 
+        # --- New 4-layer HP bar if assets exist ---
+        layers = self._hp_scaled_layers(w) if getattr(self, "_hp_bg", None) else None
+        if layers:
+            bg, fill, frame, glow, hh = layers
+
+            # draw BG
+            screen.blit(bg, (x, y))
+
+            # draw FILL (clipped)
+            fill_w = max(0, int(round(w * frac)))
+            if fill_w > 0:
+                # clip area from left
+                area = pygame.Rect(0, 0, fill_w, hh)
+                screen.blit(fill, (x, y), area)
+
+            # draw FRAME
+            screen.blit(frame, (x, y))
+            
+            # draw GLOW (top layer) with pulsing alpha
+            import math
+            t = getattr(self, "_hp_glow_t", 0.0)
+
+            # pulse settings (tuning)
+            speed = 2.2          # puls frequency
+            base_a = 110         # min alpha
+            amp_a = 110          # amplitude
+            pulse = 0.5 + 0.5 * math.sin(t * speed)
+            alpha = int(base_a + amp_a * pulse)
+
+            # quantize alpha to reduce cache size (perf)
+            alpha_q = int(round(alpha / 8.0) * 8)
+            alpha_q = max(0, min(255, alpha_q))
+
+            key = (w, alpha_q)
+            cached = self._hp_glow_alpha_cache.get(key)
+            if cached is None:
+                g = glow.copy()
+                g.set_alpha(alpha_q)
+                self._hp_glow_alpha_cache[key] = g
+                cached = g
+
+            screen.blit(cached, (x, y))
+
+
+            # label above bar (slightly tighter than before)
+            txt = self.font.render(f"{label}: {val}/{vmax}", True, (230, 230, 230))
+            screen.blit(txt, (x, y - self.font.get_height() - int(text_gap)))
+            return
+
+        # --- Fallback: old rect bar ---
         pygame.draw.rect(screen, (50, 55, 70), pygame.Rect(x, y, w, h), border_radius=4)
         pygame.draw.rect(screen, (80, 180, 120), pygame.Rect(x, y, int(w * frac), h), border_radius=4)
         pygame.draw.rect(screen, (25, 28, 38), pygame.Rect(x, y, w, h), 2, border_radius=4)
 
         txt = self.font.render(f"{label}: {val}/{vmax}", True, (230, 230, 230))
-        screen.blit(txt, (x, y - 30))
+        screen.blit(txt, (x, y - self.font.get_height() - int(text_gap)))
 
-    def _draw_morale_bar(self, screen, x, y, morale: int, label: str):
+    def _draw_morale_bar(self, screen, x, y, morale: int, label: str, text_gap: int = 2):
         if not self._morale_frame or not self._morale_fill or not self._morale_bg:
             return
 
@@ -2925,7 +3025,8 @@ class CombatState:
 
         # --- morale text ---
         txt = self.font.render(f"{label} MORALE: {morale}", True, (230, 230, 230))
-        screen.blit(txt, (x, y - 16))
+        screen.blit(txt, (x, y - self.font.get_height() - int(text_gap)))
+
 
 
     def _draw_button(self, screen, rect: pygame.Rect, text: str, enabled: bool, subtext: str = ""):
