@@ -26,7 +26,7 @@ class NewGameSetupState:
         self.ctx.clock.time_scale = TIME_SCALE_1X
 
         # Dynamisches Startgeld aus Difficulty
-        base_money = 19990
+        base_money = 0
         rc = getattr(self.ctx, "run_config", None)
 
         if rc is not None:

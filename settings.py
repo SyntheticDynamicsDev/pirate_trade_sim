@@ -20,4 +20,4 @@ DOCK_RADIUS_MULT = 1.35   # 35% größer
 DOCK_RADIUS_BONUS = 18    # +18 px extra Puffer
 
 # Siegbedingung
-WIN_GOLD_TARGET = 21000
+WIN_GOLD_TARGET = 15000

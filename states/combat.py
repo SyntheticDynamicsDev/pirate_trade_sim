@@ -196,6 +196,14 @@ class CombatEngine:
             execute=lambda eng, side, ctx: eng._ability_quick_repair(side, ctx),
         ))
 
+        self.register_ability(AbilitySpec(
+            id="crew_cheer",
+            name="Crew anfeuern",
+            cooldown_rounds=2,  # optional; set 0 if you want no cooldown
+            can_use=None,
+            execute=lambda eng, side, ctx: eng._ability_crew_cheer(side, ctx),
+        ))
+
 
     def register_ability(self, spec: AbilitySpec) -> None:
         self._abilities[spec.id] = spec
@@ -445,6 +453,14 @@ class CombatEngine:
         if not self.finished:
             self._advance_turn()
         return True
+    
+    def player_crew_cheer(self) -> bool:
+        res = self.use_ability("crew_cheer", "player", {})
+        if not res:
+            return False
+        if not self.finished:
+            self._advance_turn()
+        return True
 
     def _ability_fire(self, side: str, ctx: dict) -> dict:
         if self.finished:
@@ -639,6 +655,29 @@ class CombatEngine:
         self.add_log(f"Quick Repair! +{applied} HP, -{morale_loss} morale. Vulnerable next round.")
 
         return {"result": "ok", "heal": int(applied)}
+
+    def _ability_crew_cheer(self, side: str, ctx: dict) -> dict:
+        if self.finished:
+            return {"result": "blocked"}
+
+        actor = self.p if side == "player" else self.e
+
+        # strong morale gain
+        gain = int(ctx.get("gain", 22))  # tuning value
+        old = actor.morale
+        actor.morale = max(0, min(100, actor.morale + gain))
+        applied = actor.morale - old
+
+        self.add_log(f"{actor.name} cheers the crew! +{applied} morale.")
+
+        # event for UI/VFX (optional)
+        self.add_event({
+            "type": "crew_cheer",
+            "side": side,
+            "gain": int(applied),
+        })
+
+        return {"result": "ok", "gain": int(applied)}
 
     def _compute_rewards(self) -> dict:
         # sauber am neuen Modell orientiert
@@ -1256,7 +1295,7 @@ class CombatState:
         abilities_dir = os.path.join("assets", "ui", "abilities")
         self._ability_icons = {}
 
-        for ability_id in ("fire", "repair", "flee", "quick_repair"):
+        for ability_id in ("fire", "repair", "flee", "quick_repair", "crew_cheer"):
             path = os.path.join(abilities_dir, f"{ability_id}.png")
             if os.path.exists(path):
                 img = pygame.image.load(path).convert_alpha()
@@ -1757,7 +1796,8 @@ class CombatState:
         x = 0
 
         # 2️⃣ 25px höher als vorher
-        y_start = self.btn_fire.y - (icon_size * 3 + gap * 2) - 40  # vorher -16 → jetzt -40
+        STANCE_Y_OFFSET = 160  # positive = weiter nach unten (tune: 30..120)
+        y_start = self.btn_fire.y - (icon_size * 3 + gap * 2) - 40 + STANCE_Y_OFFSET
 
         # Klick-Rects (Icons)
         for i, key in enumerate(order):
@@ -1778,6 +1818,46 @@ class CombatState:
             panel_w,
             panel_h
         )
+
+    def _layout_abilities_grid(self, screen: pygame.Surface, ability_ids: list[str]) -> dict[str, pygame.Rect]:
+        W, H = screen.get_size()
+
+        # --- tuning ---
+        rows = 2
+        btn_w = 180
+        icon_size = 90
+        shield_h = 42
+        overlap = 26
+
+        block_h = icon_size - overlap + shield_h
+        gap_x = 18
+        gap_y = 12
+
+        margin_l = 40
+        margin_b = 22  # distance from bottom
+
+        n = len(ability_ids)
+        if n <= 0:
+            return {}
+
+        cols = (n + rows - 1) // rows  # ceil(n/2)
+
+        total_w = cols * btn_w + (cols - 1) * gap_x
+        x0 = margin_l  # left-aligned; change to center if wanted
+        y0 = H - margin_b - (rows * block_h + (rows - 1) * gap_y)
+
+        rects: dict[str, pygame.Rect] = {}
+
+        for i, aid in enumerate(ability_ids[: rows * cols]):
+            # fill row 0 first, then row 1
+            row = 0 if i < cols else 1
+            col = i if row == 0 else i - cols
+
+            x = x0 + col * (btn_w + gap_x)
+            y = y0 + row * (block_h + gap_y)
+            rects[aid] = pygame.Rect(x, y, btn_w, block_h)
+
+        return rects
 
     def _draw_combat_log_panel(self, screen: pygame.Surface) -> None:
         """Draws combat log inside a bottom-right panel."""
@@ -1872,23 +1952,13 @@ class CombatState:
             if float(getattr(self, "_turn_delay", 0.0)) > 0.0 or getattr(self, "_pending_action", None) is not None:
                 return
 
-            # Decide which action to queue
-            if self.btn_fire.collidepoint(mx, my):
-                self._pending_action = ("fire",)
-            elif self.btn_repair.collidepoint(mx, my):
-                # Avoid "wait 1s -> nothing happens" by validating locally
-                if getattr(self._player, "hp", 0) >= getattr(self._player, "hp_max", 0):
-                    return
-                self._pending_action = ("repair",)
-            elif self.btn_flee.collidepoint(mx, my):
-                self._pending_action = ("flee",)
-            elif self.btn_quick_repair.collidepoint(mx, my):
-                if getattr(self._player, "hp", 0) >= getattr(self._player, "hp_max", 0):
-                    return
-                self._pending_action = ("quick_repair",)
+            mx, my = pygame.mouse.get_pos()
 
-            else:
-                return
+            for aid, rect in getattr(self, "_ability_rects", {}).items():
+                if rect.collidepoint(mx, my):
+                    self._pending_action = (aid,)
+                    break
+
 
             # Start PRE-delay so you see who acts first before anything happens
             ts = float(getattr(self.ctx.clock, "time_scale", 1.0)) or 1.0
@@ -1912,6 +1982,11 @@ class CombatState:
             self.ctx.clock.paused = True
 
     def update(self, dt: float) -> None:
+        #Ability IDs in defined order (for layout and input handling)
+        ability_ids = list(self.engine._abilities.keys())
+        ability_ids.sort()
+
+
         # 1) Engine tick (Turn-Logik + Events)
         if getattr(self, "engine", None) is None:
             return
@@ -1949,16 +2024,26 @@ class CombatState:
             action = self._pending_action
             self._pending_action = None
 
-            # Execute exactly one player intent
+            aid = action[0]
+
+            handlers = {
+                "fire": self.engine.player_fire,
+                "repair": self.engine.player_repair,
+                "flee": self.engine.player_flee,
+                "quick_repair": self.engine.player_quick_repair,
+                "crew_cheer": self.engine.player_crew_cheer,
+            }
+
+            fn = handlers.get(aid)
             acted = False
-            if action[0] == "fire":
-                acted = bool(self.engine.player_fire())
-            elif action[0] == "repair":
-                acted = bool(self.engine.player_repair())
-            elif action[0] == "flee":
-                acted = bool(self.engine.player_flee())
-            elif action[0] == "quick_repair":
-                acted = bool(self.engine.player_quick_repair())
+
+            if fn:
+                acted = bool(fn())  # IMPORTANT: acted wird gesetzt
+            else:
+                # fallback: direkte ability use (falls du mal neue abilities ohne wrapper hast)
+                acted = bool(self.engine.use_ability(aid, "player", {}))
+                if acted and not self.engine.finished:
+                    self.engine._advance_turn()
 
             # Drain events immediately so VFX/log shows right away
             any_action_event = False
@@ -1967,7 +2052,7 @@ class CombatState:
                 if not ev:
                     break
                 self._handle_vfx_event(ev)
-                if ev.get("type") in ("fire", "repair", "board", "flee"):
+                if ev.get("type") in ("fire", "repair", "board", "flee", "quick_repair", "crew_cheer"):
                     any_action_event = True
 
             # Start POST-delay after the executed action (spacing before the next one)
@@ -2033,6 +2118,8 @@ class CombatState:
                 self._reveal = None
 
     def _handle_vfx_event(self, ev: dict) -> None:
+        
+
         et = ev.get("type")
         side = ev.get("side")  # "player" | "enemy"
 
@@ -2054,10 +2141,12 @@ class CombatState:
         src = (left_x, mid_y) if side == "player" else (right_x, mid_y)
         dst = (right_x, mid_y) if side == "player" else (left_x, mid_y)
 
-        def add_float(text, x, y, color, crit: bool = False, scale: float = 1.0):
-            self._float_texts.append(
-                _FloatText(text=text, x=float(x), y=float(y), vy=-22.0, ttl=1.05, color=color, crit=crit, scale=float(scale))
-            )
+        if et == "crew_cheer":
+            side = ev.get("side", "player")
+            key = "player" if side == "player" else "enemy"
+            r = self._unit_rects.get(key)
+            if r:
+                self._add_float("CHEER!", r.centerx, r.top - 30, (220, 220, 120), crit=False, scale=1.1)
 
         def add_burst(x, y, base_color):
             for _ in range(14):
@@ -2099,7 +2188,7 @@ class CombatState:
                     x = dst[0]
                     y = dst[1] - 40
 
-                add_float("MISS", x, y, (200, 200, 200), crit=False, scale=1.0)
+                self._add_float("MISS", x, y, (200, 200, 200), crit=False, scale=1.0)
 
 
             # Damage numbers (placed ON the defender ship)
@@ -2145,7 +2234,7 @@ class CombatState:
                 else:
                     x = rdef.centerx + int(rdef.width * 0.06) + random.randint(-4, 4)
 
-                add_float(f"-{hull}", x, y, col, crit=is_crit, scale=scale)
+                self._add_float(f"-{hull}", x, y, col, crit=is_crit, scale=scale)
 
         elif et == "board":
             hull = int(ev.get("hull", 0))
@@ -2153,16 +2242,16 @@ class CombatState:
             add_burst(dst[0], dst[1] - 10, (220, 220, 220))
             self._start_shake(0.12, 4.5)
             if hull > 0:
-                add_float(f"-{hull}", dst[0], dst[1] - 48, (255, 150, 110))
+                self._add_float(f"-{hull}", dst[0], dst[1] - 48, (255, 150, 110))
 
         elif et == "repair":
             amt = int(ev.get("amount", 0))
             add_burst(src[0], src[1] - 10, (120, 220, 150))
-            add_float(f"+{amt}", src[0], src[1] - 40, (140, 240, 170))
+            self._add_float(f"+{amt}", src[0], src[1] - 40, (140, 240, 170))
 
         elif et == "flee":
             ok = bool(ev.get("success", ev.get("ok", False)))
-            add_float("ESCAPE!" if ok else "FAILED!", src[0], src[1] - 40, (200, 200, 240) if ok else (240, 140, 140))
+            self._add_float("ESCAPE!" if ok else "FAILED!", src[0], src[1] - 40, (200, 200, 240) if ok else (240, 140, 140))
 
         elif et == "morale_shift":
             tier = ev.get("tier")
@@ -2340,27 +2429,21 @@ class CombatState:
         self._draw_morale_bar(screen, p_bar_x, morale_bar_y, self._player.morale, "YOUR", text_gap=MORALE_TEXT_GAP)
         self._draw_morale_bar(screen, e_bar_x, enemy_morale_bar_y, self._enemy.morale, "ENEMY", text_gap=MORALE_TEXT_GAP)
 
-        # Buttons
-        is_player_turn = (getattr(self.engine, "turn_owner", None) == "player")
+        # --- abilities (bottom grid, max 2 rows) ---
+        ability_ids = list(self.engine._abilities.keys())
+        # optional: keep a preferred order
+        preferred = ["fire", "repair", "quick_repair", "flee"]
+        ability_ids = [a for a in preferred if a in ability_ids] + [a for a in ability_ids if a not in preferred]
 
-        self._draw_button(
-            screen, self.btn_fire, "Fire",
-            is_player_turn
-        )
+        self._ability_rects = self._layout_abilities_grid(screen, ability_ids)
 
-        self._draw_button(
-            screen, self.btn_repair, "Repair",
-            is_player_turn and (self._player.hp < self._player.hp_max)
-        )
+        for aid, rect in self._ability_rects.items():
+            # enabled logic: only on player turn and not finished
+            enabled = (not self.engine.finished) and (self.engine.turn_owner == "player")
+            # you can add per-ability enable checks later
+            self._draw_button(screen, rect, aid.replace("_", " ").title(), enabled, ability_id=aid)
 
-        self._draw_button(
-            screen, self.btn_flee, "Flee",
-            is_player_turn
-        )
-        self._draw_button(
-            screen, self.btn_quick_repair, "Quick Repair",
-            is_player_turn and (self._player.hp < self._player.hp_max)
-        )
+
 
         # --- Stance UI (big, vertical, with transparent panel) ---
         active = self.engine.stance.value
@@ -2793,6 +2876,21 @@ class CombatState:
             "timer": 0.8  # Sekunden sichtbar
         })
 
+    def _add_float(self, text, x, y, color, crit: bool = False, scale: float = 1.0):
+        # VFX float text (preferred system)
+        self._float_texts.append(
+            _FloatText(
+                text=str(text),
+                x=float(x),
+                y=float(y),
+                vy=-22.0,
+                ttl=1.05,
+                color=color,
+                crit=bool(crit),
+                scale=float(scale),
+            )
+        )
+
     def _draw_result_overlay(self, screen: pygame.Surface) -> None:
         payload = getattr(self, "_result_payload", None)
         if not payload:
@@ -3029,7 +3127,7 @@ class CombatState:
 
 
 
-    def _draw_button(self, screen, rect: pygame.Rect, text: str, enabled: bool, subtext: str = ""):
+    def _draw_button(self, screen, rect, text, enabled, ability_id: str):
 
         mx, my = pygame.mouse.get_pos()
         hover = rect.collidepoint(mx, my)
@@ -3041,8 +3139,6 @@ class CombatState:
 
         # --- ability id aus text ableiten ---
         first = text.split(" ")[0].lower()
-        ability_id = "quick_repair" if first == "quick" else first
-
 
         icon_size = rect.height - 46 - 8  # block height minus shield + gap
         shield_h = 46

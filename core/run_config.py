@@ -19,9 +19,9 @@ class RunConfig:
 
 DIFFICULTY_PRESETS = [
     # (id, price_spread_mult, event_freq_mult, start_money_mult, start_gold_base)
-    ("leicht",   0.9,  0.7,  1.3, 1200),
+    ("leicht",   0.9,  0.7,  1.0, 1200),
     ("normal",   1.0,  1.0,  1.0, 1000),
-    ("schwer",   1.2,  1.3,  0.8,  850),
-    ("legendär", 1.35, 1.6,  0.6,  700),
+    ("schwer",   1.2,  1.3,  1.0,  850),
+    ("legendär", 1.35, 1.6,  1.0,  700),
 ]
 DEFAULT_DIFFICULTY_ID = "normal"

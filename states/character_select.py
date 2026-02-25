@@ -13,26 +13,30 @@ class CharacterSelectState:
         self._fonts = FontBank(UI_FONT_PATH, UI_FONT_FALLBACK)
         self.font = self._fonts.get(22)
         self.small = self._fonts.get(16)
+        # Nur die ersten zwei Charaktere sind auswählbar
+        self._enabled_char_count = 2
 
+        # Fragezeichen-Font (für disabled Portraits)
+        self.qmark_font = self._fonts.get(92)   # ggf. 80–110 anpassen
         # Charakterdefinition (später in JSON auslagern)
         self.chars = [
             {
                 "id": "char_01",
-                "name": "Händler",
+                "name": "Seemann",
                 "portrait": "Ruben.png",
                 "food_buy_discount": 0.10,
                 "start_ship_type_id": "sloop"
             },
             {
                 "id": "char_02",
-                "name": "Seemann",
+                "name": "Händlerin",
                 "portrait": "Lucy.png",
                 "weapon_buy_discount": 0.08,
-                "start_ship_type_id": "sloop"
+                "start_ship_type_id": "holk"
             },
             {
                 "id": "char_03",
-                "name": "Navigator",
+                "name": "???",
                 "portrait": "Carlo.png",
                 "food_buy_discount": 0.05,
                 "start_ship_type_id": "sloop"
@@ -41,7 +45,7 @@ class CharacterSelectState:
             # --- Neue Charaktere ---
             {
                 "id": "char_04",
-                "name": "Schmuggler",
+                "name": "???",
                 "portrait": "Miroso.png",
                 "buy_discount_category": "illegal",
                 "buy_discount": 0.12,
@@ -49,7 +53,7 @@ class CharacterSelectState:
             },
             {
                 "id": "char_05",
-                "name": "Quartiermeister",
+                "name": "???",
                 "portrait": "Leyla.png",
                 "food_buy_discount": 0.06,
                 "weapon_buy_discount": 0.04,
@@ -57,15 +61,20 @@ class CharacterSelectState:
             },
             {
                 "id": "char_06",
-                "name": "Finanzier",
+                "name": "???",
                 "portrait": "Gerhaldt.png",
                 "buy_discount": 0.05,
                 "start_ship_type_id": "sloop"
             },
         ]
 
-
+        # Nur die ersten zwei Charaktere sind auswählbar
+        self._enabled_char_count = 2
+        # Safety: falls selected später irgendwo rausläuft
         self.selected = 0
+        # Safety clamp
+        self.selected = max(0, min(self.selected, self._enabled_char_count - 1))
+
         self.portraits = []
         for c in self.chars:
             p = os.path.join("assets", "portraits", c["portrait"])
@@ -172,10 +181,13 @@ class CharacterSelectState:
 
     def handle_event(self, event):
         if event.type == pygame.KEYDOWN:
+            enabled = getattr(self, "_enabled_char_count", len(self.chars))
+            max_sel = max(0, enabled - 1)
+
             if event.key == pygame.K_LEFT:
                 self.selected = max(0, self.selected - 1)
             elif event.key == pygame.K_RIGHT:
-                self.selected = min(len(self.chars) - 1, self.selected + 1)
+                self.selected = min(max_sel, self.selected + 1)
             elif event.key == pygame.K_UP:
                 self.selected_diff = max(0, self.selected_diff - 1)
             elif event.key == pygame.K_DOWN:
@@ -187,13 +199,20 @@ class CharacterSelectState:
 
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             mx, my = event.pos
+            enabled = getattr(self, "_enabled_char_count", len(self.chars))
+
             for i, r in self.hitboxes:
-                if r.collidepoint(mx, my):
-                    self.selected = i
-                    # optional: Klick-Sound
-                    if getattr(self.ctx, "audio", None) is not None:
-                        self.ctx.audio.play_sfx(os.path.join("assets", "sfx", "ui_click.wav"))
-                    return
+                if not r.collidepoint(mx, my):
+                    continue
+
+                # nur wenn wirklich auf Slot geklickt wurde, dann prüfen ob disabled
+                if i >= enabled:
+                    return  # disabled Slot: nicht anwählbar
+
+                self.selected = i
+                if getattr(self.ctx, "audio", None) is not None:
+                    self.ctx.audio.play_sfx(os.path.join("assets", "sfx", "ui_click.wav"))
+                return
 
 
             # Difficulty wählen
@@ -317,6 +336,7 @@ class CharacterSelectState:
 
         y0 = 220
 
+        enabled = getattr(self, "_enabled_char_count", len(self.chars))
 
         for i, c in enumerate(self.chars):
             x = x0 + i * (140 + gap)
@@ -324,28 +344,39 @@ class CharacterSelectState:
             r = pygame.Rect(x, y, 140, 140)
             self.hitboxes.append((i, r))
 
-            hover = r.collidepoint(mx, my)
+            enabled = getattr(self, "_enabled_char_count", len(self.chars))
+            is_disabled = (i >= enabled)
 
-            # Highlight: schwarz-transparentes Panel mit Rundung
+            hover = (not is_disabled) and r.collidepoint(mx, my)
+
+            # Highlight nur für aktive Slots
             if i == self.selected or hover:
                 highlight_rect = pygame.Rect(x - 8, y - 8, 156, 200)
-
                 hl = pygame.Surface((highlight_rect.w, highlight_rect.h), pygame.SRCALPHA)
                 hl.fill((0, 0, 0, 0))
-                pygame.draw.rect(
-                    hl,
-                    (0, 0, 0, 150),   # schwarz transparent
-                    hl.get_rect(),
-                    border_radius=14
-                )
-
+                pygame.draw.rect(hl, (0, 0, 0, 150), hl.get_rect(), border_radius=14)
                 screen.blit(hl, highlight_rect.topleft)
 
+            # Portrait/Placeholder zeichnen
+            if not is_disabled:
+                screen.blit(self.portraits[i], (x, y))
+            else:
+                # optional: original portrait NICHT zeichnen -> komplett schwarz
+                # screen.blit(self.portraits[i], (x, y))
 
-            # IMMER zeichnen, nicht nur wenn selected/hover
-            screen.blit(self.portraits[i], (x, y))
+                # schwarzes Overlay (leicht transparent, wirkt "locked")
+                ov = pygame.Surface((r.w, r.h), pygame.SRCALPHA)
+                ov.fill((0, 0, 0, 230))  # Alpha anpassen (200–255)
+                screen.blit(ov, r.topleft)
 
-            name = self.small.render(c["name"], True, (240, 240, 240))
+                # Fragezeichen zentriert
+                q = self.qmark_font.render("?", True, (235, 235, 235))
+                q_rect = q.get_rect(center=r.center)
+                screen.blit(q, q_rect)
+
+            # Name (disabled gedimmt)
+            name_col = (240, 240, 240) if not is_disabled else (150, 150, 150)
+            name = self.small.render(c["name"], True, name_col)
             name_rect = name.get_rect(midtop=(r.centerx, y + 150))
             screen.blit(name, name_rect)
 

@@ -355,6 +355,7 @@ class MainMenuState:
         selected = self.items[self.selected_index]
 
         if selected == "Spiel starten":
+            self.ctx._loaded_from_save = False
             from states.character_select import CharacterSelectState
             self.game.replace(CharacterSelectState())
             return
@@ -377,6 +378,7 @@ class MainMenuState:
             from core.save_system import load_game
             ok = load_game(self.ctx)
             if ok:
+                self.ctx._loaded_from_save = True
                 from states.world import WorldMapState
                 self.game.replace(WorldMapState())
             else:

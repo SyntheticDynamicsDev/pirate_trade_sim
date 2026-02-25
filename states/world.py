@@ -8,6 +8,7 @@ import math
 from settings import TIME_SCALE_PAUSE, TIME_SCALE_1X, TIME_SCALE_2X, TIME_SCALE_4X
 from core.water_fx import WakeSystem   
 from core.progression import xp_to_level
+import settings
 
 
 @dataclass
@@ -283,8 +284,35 @@ class WorldMapState:
 
         self._marker_w, self._marker_h = self._barometer_marker.get_size()
 
+        # --- Intro / Goal Tooltip (modal) ---
+        # nur einmal pro Run anzeigen
+        if not getattr(self.ctx, "_intro_seen", False):
+            self._intro_open = True
+            self.ctx._intro_seen = True
+        else:
+            self._intro_open = False
 
+        self._goal_gold = int(getattr(settings, "WIN_GOLD_TARGET", 15000))
 
+        # Storytext
+        self._intro_title = "DEIN ERSTER AUFTRAG"
+        self._intro_paragraphs = [
+            "Du bist frisch aus dem Schatten eines gesunkenen Konvois geklettert. "
+            "Ein zerrissener Seekarten-Fetzen und ein halbleerer Rumkrug."
+            "die Handelsliga von Aurelio.",
+
+            "Sie zahlen gut, aber sie vergeben nur EINEN Vertrag: "
+            "Verdiene dir deinen Platz zurück in der Welt.",
+
+            f"ZIEL: Erreiche {self._goal_gold:,} Gold, bevor dich Piraten, Stürme und Schulden einholen."
+            .replace(",", "."),
+
+            "TIPP: Handle zwischen Häfen, investiere klug, vermeide Kämpfe wenn du schwach bist.",
+        ]
+
+        # --- Controls Hint (WASD) ---
+        self._controls_hint_t = 0.0
+        self._controls_hint_duration = 12.0  # Sekunden sichtbar
 
     def _resolve_sfx_path(self, base_name: str) -> str | None:
         """
@@ -324,6 +352,26 @@ class WorldMapState:
         self.ctx.audio.stop_loop_sfx(self._ship_loop_key, fade_ms=800)
 
     def handle_event(self, event) -> None:
+        # --- Intro modal blocks input ---
+        if getattr(self, "_intro_open", False):
+            if event.type == pygame.KEYDOWN:
+                if event.key in (pygame.K_RETURN, pygame.K_SPACE, pygame.K_ESCAPE):
+                    self._intro_open = False
+                    if getattr(self.ctx, "audio", None) is not None:
+                        self.ctx.audio.play_sfx(os.path.join("assets", "sfx", "ui_click.mp3"))
+                    return
+                return  # alles andere blocken
+
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                # linker klick oder irgendein klick schließt
+                self._intro_open = False
+                if getattr(self.ctx, "audio", None) is not None:
+                    self.ctx.audio.play_sfx(os.path.join("assets", "sfx", "ui_click.mp3"))
+                return
+
+            # sonstige events ignorieren
+            return
+        
         # --- Stats menu input has priority ---
         if event.type == pygame.KEYDOWN:
             if self._stats_open and event.key == pygame.K_ESCAPE:
@@ -445,6 +493,9 @@ class WorldMapState:
 
 
     def update(self, dt: float) -> None:
+        # --- Pause world while intro modal is open ---
+        if getattr(self, "_intro_open", False):
+            return
         # --- Sim-Time (Pause / Speed) ---
         if self.ctx.clock.paused:
             sim_dt = 0.0
@@ -457,7 +508,8 @@ class WorldMapState:
             self._enc_meter = 0.0
 
         self._ui_t = float(getattr(self, "_ui_t", 0.0)) + float(dt)
-        
+        # controls hint timer (läuft mit real dt, nicht sim_dt)
+        self._controls_hint_t = float(getattr(self, "_controls_hint_t", 0.0)) + float(dt)
 
         ship = self.ctx.player.ship
         keys = pygame.key.get_pressed()
@@ -734,6 +786,62 @@ class WorldMapState:
 
         }
 
+    def _draw_tooltip(self, screen, pos, lines, font=None):
+        """Kleines Tooltip-Panel an Mausposition, clamped im Screen."""
+        if not lines:
+            return
+
+        if font is None:
+            font = self._fonts.get(16)
+
+        sw, sh = screen.get_size()
+        mx, my = pos
+
+        pad = 10
+        line_surfs = [font.render(str(t), True, (235, 235, 235)) for t in lines]
+        w = max(s.get_width() for s in line_surfs) + pad * 2
+        h = sum(s.get_height() for s in line_surfs) + pad * 2 + (len(line_surfs) - 1) * 4
+
+        # Position leicht versetzt
+        x = mx + 16
+        y = my + 16
+
+        # Clamp (damit nichts aus dem Screen läuft)
+        if x + w > sw - 8:
+            x = sw - w - 8
+        if y + h > sh - 8:
+            y = sh - h - 8
+        x = max(8, x)
+        y = max(8, y)
+
+        panel = pygame.Surface((w, h), pygame.SRCALPHA)
+        pygame.draw.rect(panel, (0, 0, 0, 190), panel.get_rect(), border_radius=10)
+        pygame.draw.rect(panel, (220, 210, 180, 60), panel.get_rect(), 1, border_radius=10)
+        screen.blit(panel, (x, y))
+
+        yy = y + pad
+        for s in line_surfs:
+            screen.blit(s, (x + pad, yy))
+            yy += s.get_height() + 4
+
+    def _wrap_text(self, text: str, font: pygame.font.Font, max_w: int) -> list[str]:
+        """Word-wrap für pygame fonts (keine Zeile breiter als max_w)."""
+        words = text.split()
+        if not words:
+            return [""]
+
+        lines = []
+        cur = words[0]
+        for w in words[1:]:
+            test = cur + " " + w
+            if font.size(test)[0] <= max_w:
+                cur = test
+            else:
+                lines.append(cur)
+                cur = w
+        lines.append(cur)
+        return lines
+
     def render(self, screen) -> None:
         world = self.ctx.world
         player = self.ctx.player
@@ -766,6 +874,13 @@ class WorldMapState:
 
         # Fallback, falls barometer rect nicht gesetzt
         if baro is not None:
+            # --- Hover Rect für Barometer ---
+            # --- Hover Rect für Barometer (robust: Surface oder Rect) ---
+            if isinstance(baro, pygame.Rect):
+                self._baro_rect = baro.copy()
+            else:
+                self._baro_rect = baro.get_rect(topleft=(20, 160))
+
             total_h = ml_max * size + (ml_max - 1) * gap
             start_y = baro.centery - total_h // 2
 
@@ -776,8 +891,13 @@ class WorldMapState:
             sh = screen.get_height()
             start_y = max(8, min(sh - total_h - 8, start_y))
         else:
+            self._baro_rect = None
             start_x = 24
             start_y = 24
+
+        # --- Hover Rect für Masterleben ---
+        total_h = ml_max * size + (ml_max - 1) * gap
+        self._ml_rect = pygame.Rect(start_x, start_y, size, total_h)
 
         if self._ml_icon is not None:
             icon = getattr(self, "_ml_icon_scaled_cache", {}).get(size)
@@ -865,8 +985,6 @@ class WorldMapState:
         paused = "PAUSE" if self.ctx.clock.paused else ""
         hud = self.font.render(f"Tag {day}  ZeitScale: {self.ctx.clock.time_scale:.2f}  {paused}", True, (200,200,200))
         screen.blit(hud, (20, 20))
-        hint = self.font.render("WASD: Steuern | E: Anlegen | SPACE: Pause | TAB: Zeit x4", True, (150,150,150))
-        screen.blit(hint, (20, 50))
 
         # --- UI background box for XP + Gold (bottom-left) ---
         sw, sh = screen.get_size()
@@ -953,15 +1071,239 @@ class WorldMapState:
 
         self._render_barometer(screen)
 
+        # --- Hover Tooltips (nur eins zur Zeit) ---
+        if not getattr(self, "_intro_open", False) and not getattr(self, "_stats_open", False):
+            mx, my = pygame.mouse.get_pos()
+            mouse = (mx, my)
+
+            # Sammle Kandidaten in Prioritätsreihenfolge (höchste zuerst)
+            candidates = []
+
+            r = getattr(self, "_stats_btn_rect", None)
+            if r is not None and r.collidepoint(mx, my):
+                candidates.append(("STATS", ["STATS"]))
+
+            r = getattr(self, "_xp_panel_rect", None)
+            if r is not None and r.collidepoint(mx, my):
+                xp = int(getattr(self.ctx.player, "xp", 0))
+                lvl, cur, need = xp_to_level(xp)
+                if lvl >= 10 or need <= 0:
+                    lines = [f"Level: {lvl} (MAX)", f"XP gesamt: {xp}"]
+                else:
+                    remaining = max(0, int(need - cur))
+                    lines = [
+                        f"Level: {lvl}",
+                        f"XP gesamt: {xp}",
+                        f"Aktuell: {int(cur)} / {int(need)}",
+                        f"Bis Level {lvl + 1}: {remaining}",
+                    ]
+                candidates.append(("XP", lines))
+
+            r = getattr(self, "_ml_rect", None)
+            if r is not None and r.collidepoint(mx, my):
+                p = self.ctx.player
+                ml = int(getattr(p, "master_lives", 0))
+                ml_max = int(getattr(p, "master_lives_max", 3))
+                candidates.append(("ML", [
+                    "MASTERLEBEN",
+                    f"{ml} / {ml_max}",
+                    "Im Kampf verlierst du Masterleben,",
+                    "wenn dein Schiff zerstört wird.",
+                    "Bei 0 Masterleben ist das Spiel verloren.",
+                ]))
+
+            r = getattr(self, "_baro_rect", None)
+            if r is not None and r.collidepoint(mx, my):
+                candidates.append(("BARO", [
+                    "GEFAHREN-BAROMETER",
+                    "Zeigt an, wie riskant deine aktuelle Lage ist.",
+                    "Hoher Wert = höhere Wahrscheinlichkeit,",
+                    "in einen Kampf/Encounter zu geraten.",
+                ]))
+
+            # Zeichne NUR den ersten Treffer (höchste Priorität)
+            if candidates:
+                _tag, lines = candidates[0]
+                self._draw_tooltip(screen, mouse, lines, font=self._fonts.get(16))
 
 
         self._draw_xp_bar(screen)
 
+        # --- Hover Tooltips (XP) ---
+        if not getattr(self, "_intro_open", False) and not getattr(self, "_stats_open", False):
+            mx, my = pygame.mouse.get_pos()
+            r = getattr(self, "_xp_panel_rect", None)
+
+            if r is not None and r.width > 0 and r.height > 0 and r.collidepoint(mx, my):
+                xp = int(getattr(self.ctx.player, "xp", 0))
+                lvl, cur, need = xp_to_level(xp)
+
+                if lvl >= 10 or need <= 0:
+                    tip = [
+                        f"Level: {lvl} (MAX)",
+                        f"XP gesamt: {xp}",
+                    ]
+                else:
+                    remaining = max(0, int(need - cur))
+                    tip = [
+                        f"Level: {lvl}",
+                        f"XP gesamt: {xp}",
+                        f"Aktuell: {int(cur)} / {int(need)}",
+                        f"Bis Level {lvl + 1}: {remaining}",
+                    ]
+
+                self._draw_tooltip(screen, (mx, my), tip, font=self._fonts.get(16))
+
+        # --- Hover Tooltip (Masterleben) ---
+        if not getattr(self, "_intro_open", False) and not getattr(self, "_stats_open", False):
+            mx, my = pygame.mouse.get_pos()
+            r = getattr(self, "_ml_rect", None)
+            if r is not None and r.collidepoint(mx, my):
+                p = self.ctx.player
+                ml = int(getattr(p, "master_lives", 0))
+                ml_max = int(getattr(p, "master_lives_max", 3))
+
+                tip = [
+                    "MASTERLEBEN",
+                    f"{ml} / {ml_max}",
+                    "Im Kampf verlierst du Masterleben,",
+                    "wenn dein Schiff zerstört wird.",
+                    "Bei 0 Masterleben ist das Spiel verloren.",
+                ]
+                self._draw_tooltip(screen, (mx, my), tip, font=self._fonts.get(16))
+                
         self._render_stats_button(screen)
         if self._stats_open:
             self._render_stats_menu(screen)
 
+        # --- Hover Tooltip (Stats Button) ---
+        if not getattr(self, "_intro_open", False):
+            mx, my = pygame.mouse.get_pos()
+            r = getattr(self, "_stats_btn_rect", None)
+            if r is not None and r.collidepoint(mx, my):
+                self._draw_tooltip(screen, (mx, my), ["STATS"], font=self._fonts.get(16))
+
+        # --- Goal Tracker (Hauptquest) ---
+        money = int(getattr(self.ctx.player, "money", 0))
+        goal = int(getattr(self, "_goal_gold", int(getattr(settings, "WIN_GOLD_TARGET", 15000))))
+        goal_font = self._fonts.get(18, bold=True)
+        sub_font  = self._fonts.get(16)
+
+        title = goal_font.render("HAUPTZIEL", True, (245, 235, 210))
+        line  = sub_font.render(f"Erreiche {goal:,} Gold  |  Aktuell: {money:,}".replace(",", "."), True, (230, 230, 230))
+
+        pad = 12
+        w = max(title.get_width(), line.get_width()) + pad * 2
+        h = title.get_height() + line.get_height() + pad * 2 + 6
+
+        sw, sh = screen.get_size()
+        x = sw - w - 16
+        y = 16
+
+        panel = pygame.Surface((w, h), pygame.SRCALPHA)
+        pygame.draw.rect(panel, (0, 0, 0, 140), panel.get_rect(), border_radius=14)
+        screen.blit(panel, (x, y))
+        screen.blit(title, (x + pad, y + pad))
+        screen.blit(line,  (x + pad, y + pad + title.get_height() + 6))
+
+        # --- Controls Hint (WASD) ---
+        if not getattr(self.ctx, "_loaded_from_save", False):
+            t = float(getattr(self, "_controls_hint_t", 0.0))
+            dur = float(getattr(self, "_controls_hint_duration", 0.0))
+            if dur <= 0.0 or t <= dur:
+                # leichtes Fade-out gegen Ende
+                alpha = 220
+                if dur > 0.0 and t > dur - 2.0:
+                    k = max(0.0, min(1.0, (dur - t) / 2.0))  # 2s fade
+                    alpha = int(220 * k)
+
+                hint_font = self._fonts.get(16)
+                l1 = hint_font.render("STEUERUNG", True, (245, 235, 210))
+                l2 = hint_font.render("WASD / Pfeiltasten: Segeln", True, (230, 230, 230))
+                l3 = hint_font.render("E: Andocken   SPACE: Pause   TAB: Speed", True, (200, 200, 200))
+
+                pad = 12
+                w = max(l1.get_width(), l2.get_width(), l3.get_width()) + pad * 2
+                h = l1.get_height() + l2.get_height() + l3.get_height() + pad * 2 + 10
+
+                sw, sh = screen.get_size()
+                x = sw - w - 16
+                y = 16 + 74  # unter dem Hauptziel-Panel; ggf. feinjustieren
+
+                panel = pygame.Surface((w, h), pygame.SRCALPHA)
+                pygame.draw.rect(panel, (0, 0, 0, max(0, min(255, int(alpha * 0.65)))), panel.get_rect(), border_radius=14)
+                screen.blit(panel, (x, y))
+
+                # Text leicht mit eigenem Alpha
+                def blit_alpha(surf, pos):
+                    tmp = surf.copy()
+                    tmp.set_alpha(alpha)
+                    screen.blit(tmp, pos)
+
+                blit_alpha(l1, (x + pad, y + pad))
+                blit_alpha(l2, (x + pad, y + pad + l1.get_height() + 4))
+                blit_alpha(l3, (x + pad, y + pad + l1.get_height() + l2.get_height() + 8))
+
     def _render_barometer(self, screen: pygame.Surface) -> None:
+        # --- Intro Overlay Render (modal) ---
+        if getattr(self, "_intro_open", False):
+            sw, sh = screen.get_size()
+
+            # dim background
+            dim = pygame.Surface((sw, sh), pygame.SRCALPHA)
+            dim.fill((0, 0, 0, 170))
+            screen.blit(dim, (0, 0))
+
+            title_font = self._fonts.get(38, bold=True)
+            body_font  = self._fonts.get(22)
+            hint_font  = self._fonts.get(16)
+
+            # Panel sizing
+            max_text_w = int(sw * 0.62) - 48
+            paragraphs = getattr(self, "_intro_paragraphs", [])
+            wrapped = []
+            for p in paragraphs:
+                wrapped.extend(self._wrap_text(p, body_font, max_text_w))
+                wrapped.append("")  # Absatzabstand
+            if wrapped and wrapped[-1] == "":
+                wrapped.pop()
+
+            line_h = body_font.get_linesize()
+            content_h = len(wrapped) * line_h
+
+            pw = int(sw * 0.62)
+            ph = min(int(sh * 0.78), content_h + 140)  # 140 = Title+Padding+Hint
+            px = (sw - pw) // 2
+            py = (sh - ph) // 2
+            panel = pygame.Rect(px, py, pw, ph)
+
+            # panel draw
+            panel_surf = pygame.Surface((pw, ph), pygame.SRCALPHA)
+            pygame.draw.rect(panel_surf, (0, 0, 0, 210), panel_surf.get_rect(), border_radius=18)
+            screen.blit(panel_surf, panel.topleft)
+
+            # title
+            title = title_font.render(getattr(self, "_intro_title", "ZIEL"), True, (245, 235, 210))
+            screen.blit(title, (panel.x + 24, panel.y + 20))
+
+            # body
+            y = panel.y + 78
+            max_y = panel.bottom - 60  # Platz für Hint
+            for line in wrapped:
+                if y + line_h > max_y:
+                    break  # Safety: niemals über den Rand
+                if line == "":
+                    y += int(line_h * 0.6)
+                    continue
+                surf = body_font.render(line, True, (230, 230, 230))
+                screen.blit(surf, (panel.x + 24, y))
+                y += line_h
+
+            # hint
+            hint = hint_font.render("Klicke oder drücke ENTER, um zu starten.", True, (190, 190, 190))
+            screen.blit(hint, (panel.x + 24, panel.bottom - 34))
+
+
         """
         Renders the barometer frame and moves the skull marker
         vertically based on _enc_meter (0..1).
@@ -1039,6 +1381,9 @@ class WorldMapState:
             screen.blit(hover_img, (x, y))
         else:
             screen.blit(base, (x, y))
+
+        # Rect ist bereits korrekt gesetzt:
+        # self._stats_btn_rect = pygame.Rect(x, y, bw, bh)
 
     def _render_stats_menu(self, screen: pygame.Surface) -> None:
         # dim background
