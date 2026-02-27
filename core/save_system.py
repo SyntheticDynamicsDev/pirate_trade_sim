@@ -23,7 +23,16 @@ def save_exists(path: str = DEFAULT_SAVE_PATH) -> bool:
     import os
     return os.path.exists(path)
 
-
+def delete_save(path: str = DEFAULT_SAVE_PATH, preview_path: str = PREVIEW_PATH) -> None:
+    """Löscht Savegame + Preview (falls vorhanden)."""
+    for p in (path, preview_path):
+        try:
+            if p and os.path.exists(p):
+                os.remove(p)
+        except Exception:
+            # fail-safe: niemals crashen wegen delete
+            pass
+        
 def save_preview(surface: "pygame.Surface", path: str = PREVIEW_PATH) -> None:
     import pygame
     _ensure_save_dir(path)
@@ -277,7 +286,6 @@ def load_game(ctx: Any, path: str = DEFAULT_SAVE_PATH) -> bool:
     ship.throttle = float(sd.get("throttle", 0.0))
 
     # Stats
-    ship.hull_hp = int(sd.get("hull_hp", 0))
     ship.crew_max = int(sd.get("crew_max", 0))
     ship.crew_required = int(sd.get("crew_required", 0))
     ship.upkeep_per_day = int(sd.get("upkeep_per_day", 0))

@@ -87,15 +87,13 @@ class MainMenuState:
         except Exception:
             self._bg_stats = None
 
-        # Musik
+        # Musik (immer anfordern; AudioManager entscheidet, ob wirklich gewechselt wird)
         tracks = [
             os.path.join("assets", "music", "menu_01.mp3"),
-            os.path.join("assets", "music", "menu_02.ogg"),
         ]
         audio = getattr(self.ctx, "audio", None)
         if audio is not None:
-            # Musik soll zwischen Menu <-> CharacterSelect NICHT unterbrochen werden.
-            # Daher nur starten, wenn aktuell keine Musik läuft.
+            audio.play_playlist(tracks, shuffle=True, fade_ms=800)
             try:
                 # Falls dein Audio-Manager so eine Methode hat
                 playing = audio.is_music_playing()
@@ -381,6 +379,8 @@ class MainMenuState:
                 self.ctx._loaded_from_save = True
                 from states.world import WorldMapState
                 self.game.replace(WorldMapState())
+
+                self.ctx._intro_seen = True          # Intro nicht erneut anzeigen
             else:
                 self._toast = ("Kein Savegame gefunden.", pygame.time.get_ticks())
             return
@@ -466,6 +466,7 @@ class MainMenuState:
             # -------------------------
             from core.save_system import save_exists
             load_available = save_exists()  # <-- DIES muss außerhalb der Schleife stehen! (siehe Schritt 1)
+            pending_tip = None
 
             for i, label in enumerate(self.items):
                 rect = self._button_rects.get(label)
@@ -493,7 +494,7 @@ class MainMenuState:
                     tint.fill((255, 255, 255, 18))
                     screen.blit(tint, rect.topleft)
 
-                # Tooltip
+                # Tooltip (nur merken – wird nach der Schleife im Vordergrund gezeichnet)
                 if disabled and rect.collidepoint(mx, my):
                     tip_font = self.fonts.get(20)
                     tip = tip_font.render("Kein Savegame gefunden", True, (240, 240, 240))
@@ -501,8 +502,7 @@ class MainMenuState:
                     tip_bg.fill((0, 0, 0, 170))
                     tx = rect.centerx - tip_bg.get_width() // 2
                     ty = rect.bottom + 10
-                    screen.blit(tip_bg, (tx, ty))
-                    screen.blit(tip, (tx + 8, ty + 5))
+                    pending_tip = (tip_bg, tip, (tx, ty))
 
 
 
@@ -514,7 +514,11 @@ class MainMenuState:
                     selected = (i == self.selected_index)
                     hover = (not disabled) and rect.collidepoint(mx, my)
 
-
+            # Tooltip ganz am Ende zeichnen (Top Layer)
+            if pending_tip is not None:
+                tip_bg, tip, (tx, ty) = pending_tip
+                screen.blit(tip_bg, (tx, ty))
+                screen.blit(tip, (tx + 8, ty + 5))
 
         else:
             # Fallback: Textbuttons (falls Bilder fehlen)

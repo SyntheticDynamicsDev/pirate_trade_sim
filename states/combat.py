@@ -1126,7 +1126,7 @@ class CombatState:
         # HP: current HP comes from runtime ship, max from definition
         # (Falls du dein Ship-Runtime Feld schon umbenannt hast, ist 'hp' korrekt;
         #  wir lassen hull_hp als Fallback, damit du nicht sofort abstürzt, falls irgendwo noch Altstände sind.)
-        hp_cur = int(getattr(ship, "hp", getattr(ship, "hull_hp", 0)) or 0)
+        hp_cur = int(getattr(ship, "hp",) or 0)
         hp_max = int(getattr(c, "hp_max", 1) or 1)
         if hp_cur <= 0:
             hp_cur = hp_max
@@ -1557,7 +1557,7 @@ class CombatState:
 
     def _get_ship_hp(self) -> int:
         ship = self.ctx.player.ship
-        return int(getattr(ship, "hp", getattr(ship, "hull_hp", 0)) or 0)
+        return int(getattr(ship, "hp", ) or 0)
 
     def _set_ship_hp(self, value: int) -> None:
         ship = self.ctx.player.ship
@@ -1660,6 +1660,13 @@ class CombatState:
         ml = int(getattr(p, "master_lives", 0))
 
         if getattr(self.engine, "outcome", None) == "lose" and ml <= 0:
+            # Savegame beim endgültigen Tod löschen
+            try:
+                from core.save_system import delete_save
+                delete_save()
+            except Exception:
+                pass
+
             from states.lose import LoseState
             self.game.replace(LoseState(snapshot=snap))
             return
@@ -2580,6 +2587,11 @@ class CombatState:
                 pygame.draw.rect(screen, (240, 220, 140), rect, 3, border_radius=10)
             else:
                 pygame.draw.rect(screen, (10, 10, 10), rect, 2, border_radius=10)
+
+        # --- Result overlay on top ---
+        if getattr(self, "_result_showing", False):
+            self._draw_result_overlay(screen)
+            return
 
         # --- Hover Tooltip für Stances ---
         if not getattr(self, "_result_showing", False):

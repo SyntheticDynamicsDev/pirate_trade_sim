@@ -10,7 +10,6 @@ from core.water_fx import WakeSystem
 from core.progression import xp_to_level
 import settings
 
-
 @dataclass
 class WorldMapState:
     game = None
@@ -153,6 +152,26 @@ class WorldMapState:
         self._ship_stop_epsilon = 10.0    # px/s
 
         self._wind = pygame.Vector2(22.0, 6.0)  # px/s² (wie gehabt)
+
+        # --- Map Transition Arrows (2x2 spritesheet, use TOP row only) ---
+        self._arrow_frames = []
+        self._arrow_frame_i = 0
+        self._arrow_anim_t = 0.0
+        self._arrow_fps = 7.0  # Speed der Animation
+
+        try:
+            sheet_path = os.path.join("assets", "ui", "arrows.png")
+            if os.path.exists(sheet_path):
+                sheet = pygame.image.load(sheet_path).convert_alpha()
+                sw, sh = sheet.get_size()
+                fw, fh = sw // 2, sh // 2
+
+                # top row only: (0,0) and (1,0)
+                f0 = sheet.subsurface(pygame.Rect(0 * fw, 0 * fh, fw, fh)).copy()
+                f1 = sheet.subsurface(pygame.Rect(1 * fw, 0 * fh, fw, fh)).copy()
+                self._arrow_frames = [f0, f1]
+        except Exception:
+            self._arrow_frames = []
 
         self._load_current_map_assets()
         self._spawn_ship_safely()
@@ -629,6 +648,7 @@ class WorldMapState:
                         return
 
 
+
         # --- Barometer -> waves_level Loop Volume (0..100 -> 0.40..0.80) ---
         meter = float(getattr(self, "_enc_meter", 0.0))
         meter = max(0.0, min(1.0, meter))
@@ -684,6 +704,14 @@ class WorldMapState:
 
         self.ctx.audio.set_loop_volume(self._ship_loop_key, self._ship_loop_vol)
 
+        # --- Transition arrows animate with REAL dt (even if paused) ---
+        if getattr(self, "_arrow_frames", None):
+            self._arrow_anim_t += float(dt)
+            step = 1.0 / max(1e-6, float(getattr(self, "_arrow_fps", 7.0)))
+            while self._arrow_anim_t >= step:
+                self._arrow_anim_t -= step
+                self._arrow_frame_i = (int(getattr(self, "_arrow_frame_i", 0)) + 1) % len(self._arrow_frames)
+
     def _trigger_encounter_from_color(self, enc_color, entry: dict) -> None:
         import random
         pool = entry.get("pool", [])
@@ -711,6 +739,83 @@ class WorldMapState:
 
         # Meter-Reset ist oben; hier nur Spam-Schutz:
         self._encounter_cooldown = 6.0
+
+    def _build_transition_markers_for_map(self, map_id: str) -> list[dict]:
+        """
+        Finds transition zones in self._map_trg for all transition colors and returns marker list:
+        [{"pos": (x,y), "dir": "N/E/S/W"}, ...]
+        """
+        cfg = self.MAPS.get(map_id, {})
+        transitions = cfg.get("transitions", {})
+        if not transitions:
+            return []
+
+        # If map trg not loaded yet, nothing to do
+        trg = getattr(self, "_map_trg", None)
+        if trg is None:
+            return []
+
+        target_colors = list(transitions.keys())
+        if not target_colors:
+            return []
+
+        # bounds per color: (minx, miny, maxx, maxy)
+        bounds = {c: [10**9, 10**9, -1, -1] for c in target_colors}
+
+        # Use PixelArray for speed (compared to get_at)
+        px = pygame.PixelArray(trg)
+        mapped = {trg.map_rgb(c): c for c in target_colors}
+
+        w = trg.get_width()
+        h = trg.get_height()
+
+        for y in range(h):
+            for x in range(w):
+                v = px[x, y]
+                c = mapped.get(v)
+                if c is None:
+                    continue
+                b = bounds[c]
+                if x < b[0]: b[0] = x
+                if y < b[1]: b[1] = y
+                if x > b[2]: b[2] = x
+                if y > b[3]: b[3] = y
+
+        del px  # unlock surface
+
+        markers = []
+        for c, (minx, miny, maxx, maxy) in bounds.items():
+            if maxx < 0 or maxy < 0:
+                continue  # color not found on trg map
+
+            cx = (minx + maxx) // 2
+            cy = (miny + maxy) // 2
+
+            # Determine direction by which edge it's closest to
+            left = cx
+            right = (SCREEN_W - 1) - cx
+            top = cy
+            bottom = (SCREEN_H - 1) - cy
+
+            m = min(left, right, top, bottom)
+            edge_inset = 26  # px vom Rand weg
+
+            if m == left:
+                d = "W"
+                cx += edge_inset
+            elif m == right:
+                d = "E"
+                cx -= edge_inset
+            elif m == top:
+                d = "N"
+                cy += edge_inset
+            else:
+                d = "S"
+                cy -= edge_inset
+
+            markers.append({"pos": (int(cx), int(cy)), "dir": d})
+
+        return markers
 
     def _check_map_transition(self) -> None:
         ship = self.ctx.player.ship
@@ -756,6 +861,13 @@ class WorldMapState:
             self._map_trg = cached["trg"]
             self._map_enc = cached["enc"]
 
+            self._transition_markers = cached.get("transition_markers", [])
+
+            # Save/Load-Fix: falls alte Saves/Cache keine Marker enthalten
+            if not self._transition_markers:
+                self._transition_markers = self._build_transition_markers_for_map(map_id)
+                cached["transition_markers"] = self._transition_markers
+
             return
 
         cfg = self.MAPS[map_id]
@@ -764,6 +876,7 @@ class WorldMapState:
         self._map_trg = self._load_and_scale_nav(cfg["trg"])
         self._map_enc = self._load_and_scale_nav(cfg["enc"])
 
+        self._transition_markers = self._build_transition_markers_for_map(map_id)
 
         self._nav_grid = [[False for _ in range(SCREEN_H)] for _ in range(SCREEN_W)]
         for x in range(SCREEN_W):
@@ -783,6 +896,7 @@ class WorldMapState:
             "city_harbors": self._city_harbors,
             "trg": self._map_trg,
             "enc": self._map_enc,
+            "transition_markers": self._transition_markers,
 
         }
 
@@ -847,6 +961,39 @@ class WorldMapState:
         player = self.ctx.player
         # Map background (fixed)
         screen.blit(self._map_visual, (0, 0))
+
+        # --- Transition arrows (show where the world continues) ---
+        if getattr(self, "_arrow_frames", None) and getattr(self, "_transition_markers", None):
+            base = self._arrow_frames[int(getattr(self, "_arrow_frame_i", 0))]
+            for m in self._transition_markers:
+                (cx, cy) = m["pos"]
+                d = m["dir"]
+
+                img = base
+                # assume base arrow points RIGHT
+                if d == "E":
+                    rot = 0
+                elif d == "S":
+                    rot = -90
+                elif d == "W":
+                    rot = 180
+                elif d == "N":
+                    rot = 90
+                else:
+                    rot = 0
+
+                if rot != 0:
+                    img = pygame.transform.rotate(img, rot)
+
+                # scale a bit (optional)
+                scale = 1.35
+                if scale != 1.0:
+                    w = max(1, int(img.get_width() * scale))
+                    h = max(1, int(img.get_height() * scale))
+                    img = pygame.transform.smoothscale(img, (w, h))
+
+                r = img.get_rect(center=(int(cx), int(cy)))
+                screen.blit(img, r.topleft)
 
         p = self.ctx.player
         ml = int(getattr(p, "master_lives", 0))
