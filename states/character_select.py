@@ -24,22 +24,37 @@ class CharacterSelectState:
                 "id": "char_01",
                 "name": "Seemann",
                 "portrait": "Ruben.png",
-                "food_buy_discount": 0.10,
-                "start_ship_type_id": "sloop"
+                "start_ship_type_id": "sloop",
+                "start_gold_bonus_mult": 0.90,   # +15% Startgold
+                "start_gold_bonus_add":  -200,      # optional
+                "trade_buy_mult": 0.95,   # -5% Einkaufspreis
+                "trade_sell_mult": 1.00,  # +5% Verkaufspreis
+                "attack_bonus_flat": 2,
+                "armor_physical_bonus": 5.0,
+                "armor_abyssal_bonus": 2.0,
             },
             {
                 "id": "char_02",
                 "name": "Händlerin",
                 "portrait": "Lucy.png",
-                "weapon_buy_discount": 0.08,
-                "start_ship_type_id": "holk"
+                "start_ship_type_id": "holk",
+                "start_gold_bonus_mult": 1.15,   # -5% Startgold
+                "start_gold_bonus_add":  200,    # dafür +150 fix (Beispiel)
+                "trade_buy_mult": 0.90,   # -5% Einkaufspreis
+                "trade_sell_mult": 1.15,  # +5% Verkaufspreis
+                "attack_bonus_flat": -2,
+                "armor_physical_bonus": -2.0,
+                "armor_abyssal_bonus": 1.0,
             },
             {
                 "id": "char_03",
                 "name": "???",
                 "portrait": "Carlo.png",
-                "food_buy_discount": 0.05,
-                "start_ship_type_id": "sloop"
+                "start_ship_type_id": "sloop",
+                "start_gold_bonus_mult": 1.0,   # 0% Startgold
+                "start_gold_bonus_add":  100,    # +100 Startgold flat
+                "trade_buy_mult": 1.0,   # neutral
+                "trade_sell_mult": 1.0,  # neutral
             },
 
             # --- Neue Charaktere ---
@@ -47,24 +62,32 @@ class CharacterSelectState:
                 "id": "char_04",
                 "name": "???",
                 "portrait": "Miroso.png",
-                "buy_discount_category": "illegal",
-                "buy_discount": 0.12,
-                "start_ship_type_id": "holk"
+                "start_ship_type_id": "holk", 
+                "start_gold_bonus_mult": 1.0,   # 0% Startgold
+                "start_gold_bonus_add":  100,    # +100 Startgold flat
+                "trade_buy_mult": 1.0,   # neutral
+                "trade_sell_mult": 1.0,  # neutral
             },
             {
                 "id": "char_05",
                 "name": "???",
                 "portrait": "Leyla.png",
-                "food_buy_discount": 0.06,
-                "weapon_buy_discount": 0.04,
-                "start_ship_type_id": "sloop"
+                "start_ship_type_id": "sloop",
+                "start_gold_bonus_mult": 1.0,   # 0% Startgold
+                "start_gold_bonus_add":  100,    # +100 Startgold flat
+                "trade_buy_mult": 1.0,   # neutral
+                "trade_sell_mult": 1.0,  # neutral
             },
             {
                 "id": "char_06",
                 "name": "???",
                 "portrait": "Gerhaldt.png",
                 "buy_discount": 0.05,
-                "start_ship_type_id": "sloop"
+                "start_ship_type_id": "sloop",
+                "start_gold_bonus_mult": 1.0,   # 0% Startgold
+                "start_gold_bonus_add":  100,    # +100 Startgold flat
+                "trade_buy_mult": 1.0,   # neutral
+                "trade_sell_mult": 1.0,  # neutral
             },
         ]
 
@@ -96,7 +119,6 @@ class CharacterSelectState:
                 break
 
         self.diff_hitboxes = []
-        self.base_start_money = 5000  # gleiche Basis wie bisher im Setup-State
 
         self.ship_previews = {}
         ship_preview_size = (180, 180)
@@ -252,22 +274,22 @@ class CharacterSelectState:
         rc.buy_discount_category = c.get("buy_discount_category", "")
         rc.buy_discount = float(c.get("buy_discount", 0.0))
 
-        # Difficulty anwenden
+        # Difficulty anwenden (erst holen!)
         diff_id, price_spread_mult, event_freq_mult, start_money_mult, start_gold_base = self.diffs[self.selected_diff]
         rc.difficulty_id = diff_id
         rc.price_spread_mult = float(price_spread_mult)
         rc.event_freq_mult = float(event_freq_mult)
         rc.start_money_mult = float(start_money_mult)
+        rc.start_gold_base = int(start_gold_base)
+
+        # Charakter-Boni
+        rc.start_gold_bonus_mult = float(c.get("start_gold_bonus_mult", 1.0))
+        rc.start_gold_bonus_add  = int(c.get("start_gold_bonus_add", 0))
+        rc.trade_buy_mult = float(c.get("trade_buy_mult", 1.0))
+        rc.trade_sell_mult = float(c.get("trade_sell_mult", 1.0))
 
         #Schiff
         rc.start_ship_type_id = c.get("start_ship_type_id", "sloop")
-
-        # Optional: falls du start_gold_base als Info im rc halten willst
-        # (nur nötig, wenn du es später irgendwo anzeigen/loggen möchtest)
-        if hasattr(rc, "start_gold_base"):
-            rc.start_gold_base = int(start_gold_base)
-
-
 
         if getattr(self.ctx, "audio", None) is not None:
             self.ctx.audio.play_sfx(os.path.join("assets", "sfx", "ui_click.wav"))
@@ -279,13 +301,126 @@ class CharacterSelectState:
         st.ctx = self.ctx
         self.game.replace(st)
 
+    def _draw_tooltip(self, screen, pos, lines, font=None):
+        if not lines:
+            return
+        if font is None:
+            font = self._fonts.get(16)
 
+        sw, sh = screen.get_size()
+        mx, my = pos
+        pad = 10
+
+        surfs = [font.render(str(t), True, (235, 235, 235)) for t in lines]
+        w = max(s.get_width() for s in surfs) + pad * 2
+        h = sum(s.get_height() for s in surfs) + pad * 2 + (len(surfs) - 1) * 4
+
+        # oben-rechts relativ zur Maus
+        x = mx + 16
+        y = my - h - 16
+
+        # Clamp im Screen
+        if x + w > sw - 8:
+            x = sw - w - 8
+        if y < 8:
+            # falls oben kein Platz: unter die Maus ausweichen
+            y = my + 16
+        if y + h > sh - 8:
+            y = sh - h - 8
+
+        x = max(8, x)
+        y = max(8, y)
+
+        panel = pygame.Surface((w, h), pygame.SRCALPHA)
+        pygame.draw.rect(panel, (0, 0, 0, 190), panel.get_rect(), border_radius=10)
+        pygame.draw.rect(panel, (220, 210, 180, 60), panel.get_rect(), 1, border_radius=10)
+        screen.blit(panel, (x, y))
+
+        yy = y + pad
+        for s in surfs:
+            screen.blit(s, (x + pad, yy))
+            yy += s.get_height() + 4
+
+    def _char_perks_tooltip_lines(self, char: dict) -> list[str]:
+        # Difficulty-basierte Startgold-Berechnung (muss identisch zu Setup sein)
+        diff_id, _, _, start_money_mult, start_gold_base = self.diffs[self.selected_diff]
+
+        # Startgold-Char-Bonus
+        gold_mult = float(char.get("start_gold_bonus_mult", 1.0))
+        gold_add  = int(char.get("start_gold_bonus_add", 0))
+
+        # Handel
+        buy_mult  = float(char.get("trade_buy_mult", 1.0))
+        sell_mult = float(char.get("trade_sell_mult", 1.0))
+
+        # Kampf (deine neuen Felder, defaults safe)
+        atk_flat = int(char.get("attack_bonus_flat", 0))
+        armor_p  = float(char.get("armor_physical_bonus", 0.0))
+        armor_a  = float(char.get("armor_abyssal_bonus", 0.0))
+
+        # Final Startgold (Preview)
+        start_money = int(round(int(start_gold_base) * float(start_money_mult) * gold_mult)) + gold_add
+        start_money = max(0, start_money)
+
+        def fmt_int(n: int) -> str:
+            return f"{int(n):,}".replace(",", ".")
+
+        def pct_from_mult(m: float, inverse: bool = False) -> int:
+            # inverse=True => buy_mult <1 ist gut (zeigt als "+% günstiger")
+            if m <= 0:
+                return 0
+            if inverse:
+                # 0.95 => +5% günstiger
+                return int(round((1.0 / m - 1.0) * 100))
+            return int(round((m - 1.0) * 100))
+
+        buy_pct  = pct_from_mult(buy_mult, inverse=True)
+        sell_pct = pct_from_mult(sell_mult, inverse=False)
+
+        lines = [
+            f"{char.get('name','CHARAKTER')} – PERKS",
+            "",
+            f"Gold: Start {fmt_int(start_money)}",
+        ]
+
+        # Gold-Details nur wenn tatsächlich vorhanden
+        if abs(gold_mult - 1.0) > 1e-6 or gold_add != 0:
+            gm = int(round((gold_mult - 1.0) * 100))
+            parts = []
+            if gm != 0:
+                parts.append(f"{gm:+d}%")
+            if gold_add != 0:
+                parts.append(f"{gold_add:+d}")
+            lines.append("   Bonus: " + " ".join(parts).replace("+", "+"))
+
+        # Handel
+        if buy_pct != 0 or sell_pct != 0:
+            lines.append(
+                f"Handel: Kaufen {('+' if buy_pct>=0 else '')}{buy_pct}% | Verkaufen {('+' if sell_pct>=0 else '')}{sell_pct}%"
+            )
+        else:
+            lines.append("Handel: —")
+
+        # Angriff / Verteidigung
+        if atk_flat != 0 or armor_p != 0.0 or armor_a != 0.0:
+            a_line = f"Angriff: {atk_flat:+d}" if atk_flat != 0 else "Angriff: —"
+            v_parts = []
+            if armor_p != 0.0:
+                v_parts.append(f"Phys {armor_p:+.0f}")
+            if armor_a != 0.0:
+                v_parts.append(f"Abyss {armor_a:+.0f}")
+            v_line = "Verteidigung: " + (" | ".join(v_parts) if v_parts else "—")
+            lines.append(a_line)
+            lines.append(v_line)
+        else:
+            lines.append("Angriff: —")
+            lines.append("Verteidigung: —")
+
+        return lines
 
     def update(self, dt):
         if self.bg:
             self.bg.update(dt)
-
-
 
     def render(self, screen):
         # --- Video Background (shared) ---
@@ -327,58 +462,6 @@ class CharacterSelectState:
         count = len(self.chars)
 
         block_w = count * portrait_w + (count - 1) * gap
-
-        # exakt horizontal zentrieren
-        x0 = (sw - block_w) // 2
-
-        # optional: bewusster Feinschub nach rechts (Design-Offset)
-        x0 += 0   # <- kannst du jederzeit anpassen / auch 0 setzen
-
-        y0 = 220
-
-        enabled = getattr(self, "_enabled_char_count", len(self.chars))
-
-        for i, c in enumerate(self.chars):
-            x = x0 + i * (140 + gap)
-            y = y0
-            r = pygame.Rect(x, y, 140, 140)
-            self.hitboxes.append((i, r))
-
-            enabled = getattr(self, "_enabled_char_count", len(self.chars))
-            is_disabled = (i >= enabled)
-
-            hover = (not is_disabled) and r.collidepoint(mx, my)
-
-            # Highlight nur für aktive Slots
-            if i == self.selected or hover:
-                highlight_rect = pygame.Rect(x - 8, y - 8, 156, 200)
-                hl = pygame.Surface((highlight_rect.w, highlight_rect.h), pygame.SRCALPHA)
-                hl.fill((0, 0, 0, 0))
-                pygame.draw.rect(hl, (0, 0, 0, 150), hl.get_rect(), border_radius=14)
-                screen.blit(hl, highlight_rect.topleft)
-
-            # Portrait/Placeholder zeichnen
-            if not is_disabled:
-                screen.blit(self.portraits[i], (x, y))
-            else:
-                # optional: original portrait NICHT zeichnen -> komplett schwarz
-                # screen.blit(self.portraits[i], (x, y))
-
-                # schwarzes Overlay (leicht transparent, wirkt "locked")
-                ov = pygame.Surface((r.w, r.h), pygame.SRCALPHA)
-                ov.fill((0, 0, 0, 230))  # Alpha anpassen (200–255)
-                screen.blit(ov, r.topleft)
-
-                # Fragezeichen zentriert
-                q = self.qmark_font.render("?", True, (235, 235, 235))
-                q_rect = q.get_rect(center=r.center)
-                screen.blit(q, q_rect)
-
-            # Name (disabled gedimmt)
-            name_col = (240, 240, 240) if not is_disabled else (150, 150, 150)
-            name = self.small.render(c["name"], True, name_col)
-            name_rect = name.get_rect(midtop=(r.centerx, y + 150))
-            screen.blit(name, name_rect)
 
         # --- Zentrales Schiff-Preview (abhängig vom ausgewählten Charakter) ---
         selected_char = self.chars[self.selected]
@@ -530,13 +613,18 @@ class CharacterSelectState:
 
 
         # Startgold Preview (dynamisch)
+        c = self.chars[self.selected]
         _, _, _, start_money_mult, start_gold_base = self.diffs[self.selected_diff]
-        start_money = int(round(self.base_start_money * float(start_money_mult)))
+        char_mult = float(c.get("start_gold_bonus_mult", 1.0))
+        char_add  = int(c.get("start_gold_bonus_add", 0))
+
+        start_money = int(round(int(start_gold_base) * float(start_money_mult) * char_mult)) + char_add
+        start_money = max(0, start_money)
 
         preview = self.small.render(
-            f"Startgeld: {start_money})",
+            f"Startgeld: {start_money:,}".replace(",", "."),
             True,
-            (200,200,200)
+            (200, 200, 200)
         )
         screen.blit(preview, (dx + dw + 30, dy + 8))
 
@@ -588,3 +676,66 @@ class CharacterSelectState:
             hover = self.back_rect.collidepoint(mx, my)
             pygame.draw.rect(screen, (45, 60, 85) if hover else (26, 32, 40), self.back_rect, border_radius=12)
             screen.blit(label, label.get_rect(center=self.back_rect.center))
+
+
+        # exakt horizontal zentrieren
+        x0 = (sw - block_w) // 2
+
+        # optional: bewusster Feinschub nach rechts (Design-Offset)
+        x0 += 0   # <- kannst du jederzeit anpassen / auch 0 setzen
+
+        y0 = 220
+
+        enabled = getattr(self, "_enabled_char_count", len(self.chars))
+
+        hovered_char = None
+        for i, c in enumerate(self.chars):
+            x = x0 + i * (140 + gap)
+            y = y0
+            r = pygame.Rect(x, y, 140, 140)
+            self.hitboxes.append((i, r))
+
+            enabled = getattr(self, "_enabled_char_count", len(self.chars))
+            is_disabled = (i >= enabled)
+
+            hover = (not is_disabled) and r.collidepoint(mx, my)
+            if hover and not is_disabled:
+                hovered_char = i
+            # Highlight nur für aktive Slots
+            if i == self.selected or hover:
+                highlight_rect = pygame.Rect(x - 8, y - 8, 156, 200)
+                hl = pygame.Surface((highlight_rect.w, highlight_rect.h), pygame.SRCALPHA)
+                hl.fill((0, 0, 0, 0))
+                pygame.draw.rect(hl, (0, 0, 0, 150), hl.get_rect(), border_radius=14)
+                screen.blit(hl, highlight_rect.topleft)
+            
+
+            # Portrait/Placeholder zeichnen
+            if not is_disabled:
+                screen.blit(self.portraits[i], (x, y))
+            else:
+                # optional: original portrait NICHT zeichnen -> komplett schwarz
+                # screen.blit(self.portraits[i], (x, y))
+
+                # schwarzes Overlay (leicht transparent, wirkt "locked")
+                ov = pygame.Surface((r.w, r.h), pygame.SRCALPHA)
+                ov.fill((0, 0, 0, 230))  # Alpha anpassen (200–255)
+                screen.blit(ov, r.topleft)
+
+                # Fragezeichen zentriert
+                q = self.qmark_font.render("?", True, (235, 235, 235))
+                q_rect = q.get_rect(center=r.center)
+                screen.blit(q, q_rect)
+
+            # Name (disabled gedimmt)
+            name_col = (240, 240, 240) if not is_disabled else (150, 150, 150)
+            name = self.small.render(c["name"], True, name_col)
+            name_rect = name.get_rect(midtop=(r.centerx, y + 150))
+            screen.blit(name, name_rect)
+
+            # --- Hover Tooltip: Character Perks ---
+            if hovered_char is not None:
+                mx, my = pygame.mouse.get_pos()
+                c = self.chars[hovered_char]
+                tip = self._char_perks_tooltip_lines(c)
+                self._draw_tooltip(screen, (mx, my), tip, font=self._fonts.get(16))

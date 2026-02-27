@@ -117,8 +117,8 @@ class CombatEngine:
         self.p = player
         self.e = enemy
         self.pstats = pstats
-
-        self.log = deque(maxlen=10)
+        self.log = None  # Combat Log disabled for release
+        
         self.finished: bool = False
         self.outcome: Optional[str] = None  # "win" | "lose" | "flee"
 
@@ -698,7 +698,8 @@ class CombatEngine:
         return {"gold": gold, "xp": xp, "cargo": []}
     
     def add_log(self, msg: str) -> None:
-        self.log.append(msg)
+        # Combat Log disabled for release build
+        return
 
     def update(self, dt: float) -> None:
         if self.finished:
@@ -840,56 +841,6 @@ class CombatEngine:
         m = max(0, min(100, int(unit.morale))) / 100.0
         chance = 0.35 + 0.55 * m
         return max(0.10, min(0.95, chance))
-
-    def get_debug_combat_modifiers(self, unit):
-        """
-        Returns live combat multipliers affected by stance & morale.
-        """
-        mods = {}
-
-        # --- BASE ---
-        cannon = 1.0
-        reload = 1.0
-        boarding = 1.0
-        repair = 1.0
-        evade = 1.0
-        flee = 1.0
-
-        # --- STANCE ---
-        if self.stance.name == "OFFENSIVE":
-            cannon *= 1.20
-            boarding *= 1.15
-            repair *= 0.85
-            evade *= 0.90
-            flee *= 0.85
-
-        elif self.stance.name == "DEFENSIVE":
-            cannon *= 0.90
-            boarding *= 0.85
-            repair *= 1.20
-            evade *= 1.15
-            flee *= 1.25
-
-        # BALANCED = no change
-
-        # --- MORALE ---
-        morale = unit.morale / 100.0
-
-        cannon *= 0.75 + morale * 0.5
-        reload *= 1.25 - morale * 0.5
-        boarding *= 0.8 + morale * 0.4
-        repair *= 0.7 + morale * 0.6
-        evade *= 0.8 + morale * 0.4
-        flee *= 1.3 - morale * 0.6
-
-        mods["Cannon Damage"] = cannon
-        mods["Reload Speed"] = reload
-        mods["Boarding Damage"] = boarding
-        mods["Repair Power"] = repair
-        mods["Evade"] = evade
-        mods["Flee"] = flee
-
-        return mods
 
 
     # ---- Player actions ----
@@ -1181,17 +1132,34 @@ class CombatState:
             hp_cur = hp_max
         hp_max = max(hp_max, hp_cur)
 
+        rc = getattr(self.ctx, "run_config", None)
+
+        atk_bonus = int(getattr(rc, "attack_bonus_flat", 0)) if rc is not None else 0
+        armor_p_bonus = float(getattr(rc, "armor_physical_bonus", 0.0)) if rc is not None else 0.0
+        armor_a_bonus = float(getattr(rc, "armor_abyssal_bonus", 0.0)) if rc is not None else 0.0
+
+        base_dmin = int(getattr(c, "damage_min", 1))
+        base_dmax = int(getattr(c, "damage_max", 1))
+        if base_dmax < base_dmin:
+            base_dmax = base_dmin
+
+        dmin = max(1, base_dmin + atk_bonus)
+        dmax = max(dmin, base_dmax + atk_bonus)
+
+        aphys = float(getattr(c, "armor_physical", 0.0)) + armor_p_bonus
+        aaby  = float(getattr(c, "armor_abyssal", 0.0)) + armor_a_bonus
+
         self._player = CombatantRuntime(
             name="You",
 
             hp=hp_cur,
             hp_max=hp_max,
 
-            armor_physical=float(getattr(c, "armor_physical", 0.0)),
-            armor_abyssal=float(getattr(c, "armor_abyssal", 0.0)),
+            armor_physical=aphys,
+            armor_abyssal=aaby,
 
-            damage_min=int(getattr(c, "damage_min", 1)),
-            damage_max=int(getattr(c, "damage_max", 1)),
+            damage_min=dmin,
+            damage_max=dmax,
             damage_type=str(getattr(c, "damage_type", "physical")),
             penetration=float(getattr(c, "penetration", 0.0)),
             crit_chance=float(getattr(c, "crit_chance", 0.0)),
@@ -1201,6 +1169,7 @@ class CombatState:
 
             difficulty_tier=int(getattr(c, "difficulty_tier", 1)),
             threat_level=int(getattr(c, "threat_level", 1)),
+
         )
         # Morale initialisieren (kann später durch Aktionen beeinflusst werden)
         self._player.morale = random.randint(65, 80)
@@ -2291,6 +2260,133 @@ class CombatState:
         out.blit(overlay, (0, 0), special_flags=pygame.BLEND_RGB_MULT)
         return out
 
+    def _draw_tooltip(self, screen, pos, lines, font=None):
+        if not lines:
+            return
+        if font is None:
+            font = self._fonts.get(16)
+
+        sw, sh = screen.get_size()
+        mx, my = pos
+        pad = 10
+
+        surfs = [font.render(str(t), True, (235, 235, 235)) for t in lines]
+        w = max(s.get_width() for s in surfs) + pad * 2
+        h = sum(s.get_height() for s in surfs) + pad * 2 + (len(surfs) - 1) * 4
+
+        x = mx + 16
+        y = my + 16
+        if x + w > sw - 8:
+            x = sw - w - 8
+        if y + h > sh - 8:
+            y = sh - h - 8
+        x = max(8, x)
+        y = max(8, y)
+
+        panel = pygame.Surface((w, h), pygame.SRCALPHA)
+        pygame.draw.rect(panel, (0, 0, 0, 190), panel.get_rect(), border_radius=10)
+        pygame.draw.rect(panel, (220, 210, 180, 60), panel.get_rect(), 1, border_radius=10)
+        screen.blit(panel, (x, y))
+
+        yy = y + pad
+        for s in surfs:
+            screen.blit(s, (x + pad, yy))
+            yy += s.get_height() + 4
+
+    def _stance_preview_lines(self, key: str) -> list[str]:
+        # key: "offensive" | "balanced" | "defensive"
+        key = (key or "").lower()
+
+        if key == "offensive":
+            name = "OFFENSIV"
+            dmg, hit, rep, flee = 1.20, 1.10, 0.85, 0.85
+            note = "Mehr Schaden/Präzision, schlechtere Reparatur/Flucht."
+        elif key == "defensive":
+            name = "DEFENSIV"
+            dmg, hit, rep, flee = 0.90, 0.90, 1.20, 1.25
+            note = "Bessere Reparatur/Flucht, weniger Schaden/Präzision."
+        else:
+            name = "AUSGEGLICHEN"
+            dmg, hit, rep, flee = 1.00, 1.00, 1.00, 1.00
+            note = "Keine Stance-Boni/Mali."
+
+        def pct(mult: float) -> str:
+            return f"{int(round((mult - 1.0) * 100)):+d}%"
+
+        return [
+            f"HALTUNG: {name}",
+            f"Damage: {pct(dmg)}   Hit: {pct(hit)}",
+            f"Repair: {pct(rep)}   Flee: {pct(flee)}",
+            note,
+            "Hinweis: Finale Werte werden zusätzlich durch Moral beeinflusst."
+        ]
+
+    def _ability_tooltip_lines(self, ability_id: str) -> list[str]:
+        eng = self.engine
+        if eng is None:
+            return []
+
+        spec = eng._abilities.get(ability_id)
+        if spec is None:
+            return []
+
+        lines: list[str] = []
+
+        # --- Schaden (nur wo sinnvoll/berechenbar) ---
+        if ability_id == "fire":
+            attacker = eng.p
+            defender = eng.e
+            mods = eng.get_live_combat_multipliers(attacker)
+
+            # Armor-Multiplikator wie in _fire()
+            armor = float(defender.armor_physical) if str(attacker.damage_type) == "physical" else float(defender.armor_abyssal)
+            pen = float(attacker.penetration)
+            effective_armor = armor - pen
+            dmg_mult_from_armor = max(0.1, 1.0 - (effective_armor / 100.0))
+
+            dmin = int(attacker.damage_min)
+            dmax = int(attacker.damage_max)
+            if dmax < dmin:
+                dmax = dmin
+
+            # Ohne Crit, aber inkl. Stance+Morale (mods["damage"]) + Armor/Pen
+            lo = int(round(dmin * dmg_mult_from_armor * float(mods.get("damage", 1.0))))
+            hi = int(round(dmax * dmg_mult_from_armor * float(mods.get("damage", 1.0))))
+            lo = max(1, lo)
+            hi = max(lo, hi)
+
+            lines.append(f"Schaden: {lo}–{hi}")
+
+        # --- Heilung (nur wo sinnvoll/berechenbar) ---
+        elif ability_id in ("repair", "quick_repair"):
+            p = eng.p
+            mods = eng.get_live_combat_multipliers(p)
+            repair_mult = float(mods.get("repair", 1.0))
+
+            if ability_id == "repair":
+                base = int(round(p.hp_max * 0.10))
+                base = max(3, base)
+            else:
+                base = int(round(p.hp_max * 0.30))
+                base = max(8, base)
+
+            heal = int(round(base * repair_mult))
+            heal = max(1, heal)
+
+            # Repair kann failen – aber du wolltest nur Heilung anzeigen.
+            lines.append(f"Heilung: {heal}")
+
+        # --- Abklingzeit (wenn vorhanden) ---
+        cd_total = int(getattr(spec, "cooldown_rounds", 0) or 0)
+        if cd_total > 0:
+            cd_left = int(eng._cd.get("player", {}).get(ability_id, 0) or 0)
+            if cd_left > 0:
+                lines.append(f"Abklingzeit: {cd_total} (bereit in {cd_left})")
+            else:
+                lines.append(f"Abklingzeit: {cd_total}")
+
+        return lines
+
     def render(self, screen: pygame.Surface) -> None:
         HP_TEXT_GAP = -70
         MORALE_TEXT_GAP = 2
@@ -2443,7 +2539,15 @@ class CombatState:
             # you can add per-ability enable checks later
             self._draw_button(screen, rect, aid.replace("_", " ").title(), enabled, ability_id=aid)
 
-
+        # --- Hover Tooltip für Abilities (Schaden/Heilung/Abklingzeit) ---
+        if not getattr(self, "_result_showing", False):
+            mx, my = pygame.mouse.get_pos()
+            for aid, rect in getattr(self, "_ability_rects", {}).items():
+                if rect.collidepoint(mx, my):
+                    tip = self._ability_tooltip_lines(aid)
+                    if tip:  # nur anzeigen wenn überhaupt eines der Felder vorhanden ist
+                        self._draw_tooltip(screen, (mx, my), tip, font=self._fonts.get(16))
+                    break
 
         # --- Stance UI (big, vertical, with transparent panel) ---
         active = self.engine.stance.value
@@ -2477,112 +2581,14 @@ class CombatState:
             else:
                 pygame.draw.rect(screen, (10, 10, 10), rect, 2, border_radius=10)
 
-        # Combat log bottom-right
-        self._draw_combat_log_panel(screen)
-
-        if getattr(self, "_result_showing", False):
-            self._draw_result_overlay(screen)
-            t = self.font.render("ENTER / Click to continue", True, (170, 170, 170))
-
-        self._draw_reveal_overlay(screen)
-
-        # --- DEBUG COMBAT STATS ---
-        # --- Combat debug panel (left of combat log) ---
-        log_rect = self._log_panel_rect
-
-        dbg_w = 320
-        dbg_h = log_rect.height
-        dbg_x = log_rect.left - dbg_w - 12
-        dbg_y = log_rect.top
-
-        self._draw_debug_panel(screen, dbg_x, dbg_y, dbg_w, dbg_h)
-        self._draw_combat_debug(screen, dbg_x, dbg_y)
-
-    def _draw_debug_panel(self, screen, x, y, w, h):
-        panel = pygame.Surface((w, h), pygame.SRCALPHA)
-        panel.fill((0, 0, 0, 160))
-        pygame.draw.rect(panel, (40, 40, 40), panel.get_rect(), 2, border_radius=6)
-        screen.blit(panel, (x, y))
-
-    def _draw_combat_debug(self, screen, x, y):
-
-        panel_width = 320
-        panel_padding = 10
-        line_height = 20
-        cur_y = y + panel_padding
-        panel_rect = pygame.Rect(x, y, panel_width, 260)
-
-        panel_surf = pygame.Surface(panel_rect.size, pygame.SRCALPHA)
-        panel_surf.fill((0, 0, 0, 170))  # transparent black
-        screen.blit(panel_surf, panel_rect.topleft)
-
-        def draw_line(text):
-            nonlocal cur_y
-
-            words = text.split(" ")
-            line = ""
-
-            for word in words:
-                test_line = line + word + " "
-                text_width = self.font.size(test_line)[0]
-
-                if text_width > panel_width - panel_padding * 2:
-                    surf = self.font.render(line, True, (220, 220, 220))
-                    screen.blit(surf, (x + panel_padding, cur_y))
-                    cur_y += line_height
-                    line = word + " "
-                else:
-                    line = test_line
-
-            if line:
-                surf = self.font.render(line, True, (220, 220, 220))
-                screen.blit(surf, (x + panel_padding, cur_y))
-                cur_y += line_height
-
-        cur_y = y + 8
-        line_h = 18
-
-        mods = self.engine.get_live_combat_multipliers(self.engine.p)
-        #mods = self.engine.get_debug_combat_modifiers(self.engine.e)  TITEL ÄNDERN
-        hit_chance = self.engine._compute_hit_chance(self.engine.p)
-        rep_p = self.engine._compute_repair_success(self.engine.p)
-
-        line_h = 18
-        cur_y = y + 10
-        #flee chance + pressure (pressure is the main driver of flee chance, so good to see them together)
-        fc = self.engine._compute_flee_chance()
-        pr = self.engine._compute_enemy_pressure()
-        surf = self.font.render(f"Flee Chance: {fc*100:5.1f}%  (pressure {pr:.2f})", True, (230, 230, 230))
-        screen.blit(surf, (x + 10, cur_y))
-        cur_y += 18
-
-
-        title = self.font.render("PLAYER MODIFIERS", True, (230, 230, 230))
-        base_hit = 0.75
-        hit_mult = float(mods.get("hit", 1.0))
-        hc_txt = f"Hit Chance: {hit_chance*100:5.1f}%   (base {base_hit*100:.0f}% × x{hit_mult:.2f})"
-
-        surf = self.font.render(hc_txt, True, (240, 220, 180))
-        screen.blit(surf, (x + 10, cur_y))
-        cur_y += 20
-
-        screen.blit(title, (x + 10, cur_y))
-        cur_y += 22
-
-        draw_line("PLAYER MODIFIERS")
-
-        for name in ("damage", "hit", "repair", "flee", "panic_fail"):
-            value = float(mods.get(name, 0.0))
-
-            if name == "panic_fail":
-                txt = f"{name:<12}: {value*100:5.1f}%"
-            else:
-                pct = int((value - 1.0) * 100)
-                txt = f"{name:<12}: x{value:.2f} ({pct:+d}%)"
-
-            draw_line(txt)
-
-
+        # --- Hover Tooltip für Stances ---
+        if not getattr(self, "_result_showing", False):
+            mx, my = pygame.mouse.get_pos()
+            for key, rect in self._stance_rects.items():
+                if rect.collidepoint(mx, my):
+                    lines = self._stance_preview_lines(key)
+                    self._draw_tooltip(screen, (mx, my), lines, font=self._fonts.get(16))
+                    break
 
     def _draw_reveal_overlay(self, screen: pygame.Surface) -> None:
         if not getattr(self, "_reveal", None):

@@ -817,6 +817,22 @@ class CityState:
             target = g.target_stock * self.ctx.economy.NEED_TARGET_MULT.get(need, 1.0)
             bid, ask = self.ctx.economy.compute_bid_ask(g.base_price, ps, target, need)
 
+            rc = self.ctx.run_config
+
+            # buy_discount (nur wenn Kategorie matcht) – wie in _buy_good
+            cat = g.category
+            if getattr(rc, "buy_discount_category", None) and getattr(rc, "buy_discount", 0.0) > 0:
+                if cat.lower() == rc.buy_discount_category.lower():
+                    ask = ask * (1.0 - rc.buy_discount)
+
+            # Charakter-Handelsbonus (wie in _buy_good/_sell_good)
+            ask = ask * float(getattr(rc, "trade_buy_mult", 1.0))
+            bid = bid * float(getattr(rc, "trade_sell_mult", 1.0))
+
+            # Safety
+            ask = max(0.01, ask)
+            bid = max(0.01, bid)
+
             # --- Favorit-Stern (links in der Zeile) ---
             STAR_SIZE = 18  # falls du es woanders schon als Konstante hast, nicht doppelt definieren
             fav_rect = pygame.Rect(0, 0, STAR_SIZE, STAR_SIZE)
@@ -1111,6 +1127,10 @@ class CityState:
             rc = self.ctx.run_config
             cat = g.category
 
+            # Charakter-Handelsbonus: BUY (ask günstiger wenn <1.0)
+            buy_mult = float(getattr(rc, "trade_buy_mult", 1.0))
+            ask = ask * buy_mult
+
             # buy_discount nur wenn Kategorie matcht
             if getattr(rc, "buy_discount_category", None) and getattr(rc, "buy_discount", 0.0) > 0:
                 if cat.lower() == rc.buy_discount_category.lower():
@@ -1168,6 +1188,14 @@ class CityState:
             ps = market.price_stock.get(g.id, market.stock.get(g.id, 0.0))
             bid, ask = self.ctx.economy.compute_bid_ask(g.base_price, ps, target, need)
 
+            rc = self.ctx.run_config
+
+            # Charakter-Handelsbonus: SELL (bid besser wenn >1.0)
+            sell_mult = float(getattr(rc, "trade_sell_mult", 1.0))
+            bid = bid * sell_mult
+
+            ask = max(0.01, ask)
+            bid = max(0.01, bid)
             # Ware FIFO entnehmen
             removed = player.cargo.remove_fifo(g.id, chunk)
             if removed <= 0.001:

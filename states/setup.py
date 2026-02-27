@@ -25,14 +25,17 @@ class NewGameSetupState:
 
         self.ctx.clock.time_scale = TIME_SCALE_1X
 
-        # Dynamisches Startgeld aus Difficulty
-        base_money = 0
+        # Dynamisches Startgeld (einheitliche Quelle: run_config + difficulty preset)
         rc = getattr(self.ctx, "run_config", None)
 
-        if rc is not None:
-            start_money = int(round(base_money * float(rc.start_money_mult)))
-        else:
-            start_money = base_money
+        base = int(getattr(rc, "start_gold_base", 1000)) if rc is not None else 1000
+        mult = float(getattr(rc, "start_money_mult", 1.0)) if rc is not None else 1.0
+
+        char_mult = float(getattr(rc, "start_gold_bonus_mult", 1.0)) if rc is not None else 1.0
+        char_add  = int(getattr(rc, "start_gold_bonus_add", 0)) if rc is not None else 0
+
+        start_money = int(round(base * mult * char_mult)) + char_add
+        start_money = max(0, start_money)
 
         # Direkt starten (kein Setup-Fenster mehr)
         self.ctx.content = load_content("content")

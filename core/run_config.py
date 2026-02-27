@@ -11,8 +11,15 @@ class RunConfig:
     start_money_mult: float = 1.0         # Startkapital
 
     # Charakter-Perks (Beispiele)
-    food_buy_discount: float = 0.0        # z.B. 0.10 = 10% günstiger einkaufen (Lebensmittel)
-    weapon_buy_discount: float = 0.0
+    start_gold_base: int = 1000
+    start_gold_bonus_mult: float = 1.0   # z.B. 1.15 = +15%
+    start_gold_bonus_add: int = 0        # z.B. +200 Gold flat
+    attack_bonus_flat: int = 0          # +2 => damage_min/max +2
+    armor_physical_bonus: float = 0.0   # +5 => armor_physical +5
+    armor_abyssal_bonus: float = 0.0    # +5 => armor_abyssal +5 (optional)
+
+    trade_buy_mult: float = 1.0
+    trade_sell_mult: float = 1.0
 
     #Startschiff
     start_ship_type_id: str = "sloop"
