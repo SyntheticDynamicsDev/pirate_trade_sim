@@ -9,6 +9,7 @@ class CharacterSelectState:
     def on_enter(self):
         from core.ui_text import FontBank, TextStyle, render_text
         from settings import UI_FONT_PATH, UI_FONT_FALLBACK
+        i18n = self.ctx.i18n
 
         self._fonts = FontBank(UI_FONT_PATH, UI_FONT_FALLBACK)
         self.font = self._fonts.get(22)
@@ -377,10 +378,19 @@ class CharacterSelectState:
         buy_pct  = pct_from_mult(buy_mult, inverse=True)
         sell_pct = pct_from_mult(sell_mult, inverse=False)
 
+        i18n = self.ctx.i18n
+
+        # name i18n: use selected index mapping if possible
+        try:
+            idx = self.chars.index(char)
+            display_name = i18n.t(f"char.name.{idx}")
+        except Exception:
+            display_name = str(char.get("name", "CHARACTER"))
+
         lines = [
-            f"{char.get('name','CHARAKTER')} – PERKS",
+            i18n.t("char.perks.title", name=display_name),
             "",
-            f"Gold: Start {fmt_int(start_money)}",
+            i18n.t("char.perks.gold", money=fmt_int(start_money)),
         ]
 
         # Gold-Details nur wenn tatsächlich vorhanden
@@ -391,30 +401,37 @@ class CharacterSelectState:
                 parts.append(f"{gm:+d}%")
             if gold_add != 0:
                 parts.append(f"{gold_add:+d}")
-            lines.append("   Bonus: " + " ".join(parts).replace("+", "+"))
+            bonus_parts = " ".join(parts).replace("+", "+")
+            lines.append("   " + i18n.t("char.perks.bonus", parts=bonus_parts))
 
         # Handel
         if buy_pct != 0 or sell_pct != 0:
-            lines.append(
-                f"Handel: Kaufen {('+' if buy_pct>=0 else '')}{buy_pct}% | Verkaufen {('+' if sell_pct>=0 else '')}{sell_pct}%"
-            )
+            buy_s  = f"{buy_pct:+d}"
+            sell_s = f"{sell_pct:+d}"
+            lines.append(i18n.t("char.perks.trade", buy=buy_s, sell=sell_s))
         else:
-            lines.append("Handel: —")
+            lines.append(i18n.t("char.perks.trade.none"))
 
         # Angriff / Verteidigung
         if atk_flat != 0 or armor_p != 0.0 or armor_a != 0.0:
-            a_line = f"Angriff: {atk_flat:+d}" if atk_flat != 0 else "Angriff: —"
+            if atk_flat != 0:
+                lines.append(i18n.t("char.perks.attack", value=f"{atk_flat:+d}"))
+            else:
+                lines.append(i18n.t("char.perks.attack.none"))
+
             v_parts = []
             if armor_p != 0.0:
                 v_parts.append(f"Phys {armor_p:+.0f}")
             if armor_a != 0.0:
                 v_parts.append(f"Abyss {armor_a:+.0f}")
-            v_line = "Verteidigung: " + (" | ".join(v_parts) if v_parts else "—")
-            lines.append(a_line)
-            lines.append(v_line)
+
+            if v_parts:
+                lines.append(i18n.t("char.perks.defense", value=" | ".join(v_parts)))
+            else:
+                lines.append(i18n.t("char.perks.defense.none"))
         else:
-            lines.append("Angriff: —")
-            lines.append("Verteidigung: —")
+            lines.append(i18n.t("char.perks.attack.none"))
+            lines.append(i18n.t("char.perks.defense.none"))
 
         return lines
 
@@ -501,7 +518,8 @@ class CharacterSelectState:
 
         #--- Schiff-Name + Stats im Panel ---
         ship_label = self.ship_type_to_name.get(ship_type_id, ship_type_id)
-        ship_title = self.small.render("Startschiff", True, (220, 220, 220))
+        i18n = self.ctx.i18n
+        ship_title = self.small.render(i18n.t("char.ship_panel.title"), True, (220, 220, 220))
         ship_name = self.small.render(ship_label, True, (240, 240, 240))
 
         # --- Layout im Panel: links Schiff, rechts Stats ---
@@ -546,19 +564,20 @@ class CharacterSelectState:
 
 
         cap_txt = f"{cap:.0f} t" if isinstance(cap, (int, float)) else "-"
-        spd_txt = f"{spd:.0f} px/s" if isinstance(spd, (int, float)) else "-"
+        spd_txt = f"{spd:.0f} m/s" if isinstance(spd, (int, float)) else "-"
         hp_txt  = f"{hp_max:.0f}" if isinstance(hp_max, (int, float)) else "-"
         dmg_txt = f"{dmg_min}–{dmg_max}" if isinstance(dmg_min, int) and isinstance(dmg_max, int) else "-"
         armor_txt = f"{armor_phys:.0f}" if isinstance(armor_phys, (int, float)) else "-"
         cannon_txt = f"{cannons}" if isinstance(cannons, int) else "-"
 
+        i18n = self.ctx.i18n
         lines = [
-            f"Kapazität: {cap_txt}",
-            f"Geschwindigkeit: {spd_txt}",
-            f"Leben: {hp_txt}",
-            f"Rüstung: {armor_txt}",
-            f"Kanonen: {cannon_txt}",
-            f"Schaden: {dmg_txt}",
+            i18n.t("char.ship.stat.capacity", value=cap_txt),
+            i18n.t("char.ship.stat.speed", value=spd_txt),
+            i18n.t("char.ship.stat.hp", value=hp_txt),
+            i18n.t("char.ship.stat.armor", value=armor_txt),
+            i18n.t("char.ship.stat.cannons", value=cannon_txt),
+            i18n.t("char.ship.stat.damage", value=dmg_txt),
         ]
 
 
@@ -581,7 +600,8 @@ class CharacterSelectState:
         dgap = 12
 
 
-        diff_title = self.small.render("Schwierigkeit", True, (220,220,220))
+        i18n = self.ctx.i18n
+        diff_title = self.small.render(i18n.t("char.difficulty"), True, (220, 220, 220))
         screen.blit(diff_title, (dx, dy - 28))
 
         for i, d in enumerate(self.diffs):
@@ -621,8 +641,10 @@ class CharacterSelectState:
         start_money = int(round(int(start_gold_base) * float(start_money_mult) * char_mult)) + char_add
         start_money = max(0, start_money)
 
+        i18n = self.ctx.i18n
+        money_str = f"{start_money:,}".replace(",", ".")
         preview = self.small.render(
-            f"Startgeld: {start_money:,}".replace(",", "."),
+            i18n.t("char.start_money", money=money_str),
             True,
             (200, 200, 200)
         )
@@ -667,7 +689,7 @@ class CharacterSelectState:
             screen.blit(self.back_img, self.back_rect)
         else:
             # Fallback: Textbutton, falls kein Bild existiert
-            label = self.small.render("Zurück", True, (240, 240, 240))
+            label = self.small.render(self.ctx.i18n.t("char.btn.back_fallback"), True, (240, 240, 240))
             bw = label.get_width() + 48
             bh = label.get_height() + 24
             self.back_rect = pygame.Rect(0, 0, bw, bh)
@@ -727,9 +749,15 @@ class CharacterSelectState:
                 q_rect = q.get_rect(center=r.center)
                 screen.blit(q, q_rect)
 
-            # Name (disabled gedimmt)
+            # Name (i18n; disabled gedimmt)
+            i18n = self.ctx.i18n
             name_col = (240, 240, 240) if not is_disabled else (150, 150, 150)
-            name = self.small.render(c["name"], True, name_col)
+
+            # use stable slot index for name mapping
+            name_key = f"char.name.{i}"
+            display_name = i18n.t(name_key)
+
+            name = self.small.render(display_name, True, name_col)
             name_rect = name.get_rect(midtop=(r.centerx, y + 150))
             screen.blit(name, name_rect)
 

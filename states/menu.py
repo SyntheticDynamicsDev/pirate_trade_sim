@@ -20,7 +20,8 @@ class MainMenuState:
 
     def on_enter(self) -> None:
         # Reihenfolge wie gewünscht
-        self.items: List[str] = ["Spiel starten", "Spiel laden", "Optionen", "Spiel beenden"]
+        # Internal IDs (language-independent)
+        self.items = ["start", "load", "options", "quit"]
         self.selected_index: int = 0
         self.item_hitboxes: List[Tuple[int, pygame.Rect]] = []
 
@@ -33,7 +34,14 @@ class MainMenuState:
         self.font = self.fonts.get(40)
         self.small = self.fonts.get(14)
 
+        # --- Ensure i18n exists even before setup.py runs (menu/options need it) ---
+        if not hasattr(self.ctx, "lang"):
+            self.ctx.lang = "de"
 
+        if not hasattr(self.ctx, "i18n") or self.ctx.i18n is None:
+            from core.i18n import I18N
+            self.ctx.i18n = I18N(lang=self.ctx.lang, base_dir="content/i18n")
+            self.ctx.i18n.load()
 
         # --- Video Background (Frame Sequenz) ---
         self.bg = getattr(self.ctx, "menu_bg", None)
@@ -57,10 +65,10 @@ class MainMenuState:
 
         # Passe diese Pfade an, falls deine Assets anders heißen/liegen
         self.sign_paths: Dict[str, str] = {
-            "Spiel starten": os.path.join("assets", "ui", "sign_start.png"),
-            "Spiel laden": os.path.join("assets", "ui", "sign_load.png"),
-            "Optionen": os.path.join("assets", "ui", "sign_options.png"),
-            "Spiel beenden": os.path.join("assets", "ui", "sign_quit.png"),
+            "start": os.path.join("assets", "ui", "sign_start.png"),
+            "load": os.path.join("assets", "ui", "sign_load.png"),
+            "options": os.path.join("assets", "ui", "sign_options.png"),
+            "quit": os.path.join("assets", "ui", "sign_quit.png"),
         }
         self.title_sign = pygame.image.load(
             os.path.join("assets", "ui", "pirate.png")
@@ -340,7 +348,8 @@ class MainMenuState:
 
         self.item_hitboxes = []
         for i, item in enumerate(self.items):
-            txt = self.font.render(item, True, (240, 240, 240))
+            label = self.ctx.i18n.t(f"menu.{item}")
+            txt = self.font.render(label, True, (240, 240, 240))
             tx = screen_w // 2 - txt.get_width() // 2
             ty = start_y + i * spacing
             rect = pygame.Rect(tx - 20, ty - 8, txt.get_width() + 40, txt.get_height() + 16)
@@ -352,16 +361,16 @@ class MainMenuState:
     def activate_selected(self) -> None:
         selected = self.items[self.selected_index]
 
-        if selected == "Spiel starten":
+        if selected == "start":
             self.ctx._loaded_from_save = False
             from states.character_select import CharacterSelectState
             self.game.replace(CharacterSelectState())
             return
 
-        if selected == "Spiel beenden":
+        if selected == "quit":
             raise SystemExit
 
-        if selected == "Optionen":
+        if selected == "options":
             from states.options import OptionsState
             st = OptionsState(bg_mode="menu", bg_snapshot=None)
             self.game.push(st)
@@ -369,10 +378,10 @@ class MainMenuState:
 
         from core.save_system import save_exists
         if not save_exists():
-            self._toast = ("Kein Savegame gefunden.", pygame.time.get_ticks())
+            self._toast = (self.ctx.i18n.t("menu.no_save"), pygame.time.get_ticks())
             return
 
-        if selected == "Spiel laden":
+        if selected == "load":
             from core.save_system import load_game
             ok = load_game(self.ctx)
             if ok:
@@ -382,7 +391,7 @@ class MainMenuState:
 
                 self.ctx._intro_seen = True          # Intro nicht erneut anzeigen
             else:
-                self._toast = ("Kein Savegame gefunden.", pygame.time.get_ticks())
+                self._toast = (self.ctx.i18n.t("menu.no_save"), pygame.time.get_ticks())
             return
 
         return
@@ -474,8 +483,8 @@ class MainMenuState:
                 if rect is None or sign is None:
                     continue
 
-                is_load_btn = (label == "Spiel laden")
-                disabled = is_load_btn and (not load_available)
+                is_load_btn = (label == "load")
+                disabled = is_load_btn and not load_available
 
                 hover = (not disabled) and rect.collidepoint(mx, my)
                 selected = (i == self.selected_index)
@@ -497,7 +506,7 @@ class MainMenuState:
                 # Tooltip (nur merken – wird nach der Schleife im Vordergrund gezeichnet)
                 if disabled and rect.collidepoint(mx, my):
                     tip_font = self.fonts.get(20)
-                    tip = tip_font.render("Kein Savegame gefunden", True, (240, 240, 240))
+                    tip = tip_font.render(self.ctx.i18n.t("menu.no_save"), True, (240, 240, 240))
                     tip_bg = pygame.Surface((tip.get_width() + 16, tip.get_height() + 10), pygame.SRCALPHA)
                     tip_bg.fill((0, 0, 0, 170))
                     tx = rect.centerx - tip_bg.get_width() // 2
@@ -506,9 +515,9 @@ class MainMenuState:
 
 
 
-                if label == "Spiel laden" and hover:
+                if label == "load" and hover:
                     self._draw_load_preview(screen, rect)
-                    is_load_btn = (label == "Spiel laden")
+                    is_load_btn = (label == "load")
                     disabled = is_load_btn and not load_available
                     hover = rect.collidepoint(mx, my)
                     selected = (i == self.selected_index)

@@ -323,7 +323,7 @@ class CityState:
                 on_new_day(self.ctx)
 
                 self.ctx.audio.play_sfx(os.path.join("assets", "sfx", "ui_click.mp3"))
-                self.message = "Neuer Tag begonnen."
+                self.message = self.ctx.i18n.t("city.msg.new_day")
                 return
 
 
@@ -480,6 +480,17 @@ class CityState:
 
         screen.blit(panel_surf, rect.topleft)
 
+    def _t_good(self, gid: str) -> str:
+        """Localized good name. Fallback to content name if missing."""
+        g = self.ctx.content.goods.get(gid)
+        if g is None:
+            return gid
+        # Prefer explicit name_key if you add it later
+        name_key = getattr(g, "name_key", None)
+        if name_key:
+            return self.ctx.i18n.t(name_key)
+        # Fallback: good.<id> key
+        return self.ctx.i18n.t(f"good.{gid}") if hasattr(self.ctx, "i18n") else getattr(g, "name", gid)
 
     def update(self, dt: float) -> None:
         ...
@@ -569,7 +580,7 @@ class CityState:
         day = getattr(self.ctx.clock, "day", 1)
 
         hud = self.font.render(
-            f"Tag: {day} | Geld: {player.money}",
+            self.ctx.i18n.t("city.hud", day=day, money=player.money),
             True,
             (220, 220, 220)
         )
@@ -607,7 +618,10 @@ class CityState:
         step = 34
 
         for cat in cats:
-            label = "FAV" if cat == FAV_CAT else cat.upper()
+            if cat == FAV_CAT:
+                label = self.ctx.i18n.t("city.cat.fav")
+            else:
+                label = self.ctx.i18n.t(f"city.cat.{cat}")  # food/raw/craft/sea/luxury
             r = pygame.Rect(bx, by, btn_w, btn_h)
             self.cat_buttons[cat] = r
 
@@ -743,10 +757,10 @@ class CityState:
         # Header
         hdr = self.font_small
         screen.blit(hdr.render(" ", True, (220, 220, 220)), (panel.left + 12, panel.top + 10))
-        screen.blit(hdr.render("Markt", True, (220, 220, 220)), (content_x0 + X_MARKET, panel.top + 10))
-        screen.blit(hdr.render("Verkaufen", True, (220, 220, 220)), (content_x0 + X_SELL, panel.top + 10))
-        screen.blit(hdr.render("Kaufen", True, (220, 220, 220)), (content_x0 + X_BUY, panel.top + 10))
-        screen.blit(hdr.render("Du", True, (220, 220, 220)), (content_x0 + X_OWN, panel.top + 10))
+        screen.blit(hdr.render(self.ctx.i18n.t("city.table.market"), True, (220, 220, 220)), (content_x0 + X_MARKET, panel.top + 10))
+        screen.blit(hdr.render(self.ctx.i18n.t("city.table.sell"),   True, (220, 220, 220)), (content_x0 + X_SELL,   panel.top + 10))
+        screen.blit(hdr.render(self.ctx.i18n.t("city.table.buy"),    True, (220, 220, 220)), (content_x0 + X_BUY,    panel.top + 10))
+        screen.blit(hdr.render(self.ctx.i18n.t("city.table.you"),    True, (220, 220, 220)), (content_x0 + X_OWN,    panel.top + 10))
 
 
         # --- Lesbarkeits-Layer: sehr transparentes Rechteck hinter Liste ---
@@ -896,7 +910,7 @@ class CityState:
             # Tooltip: Warenname nur bei Hover über Icon
             mx, my = pygame.mouse.get_pos()
             if icon_rect.collidepoint(mx, my):
-                hover_tooltip_text = g.name
+                hover_tooltip_text = self._t_good(g.id)
                 hover_tooltip_pos = (mx, my)
 
 
@@ -924,15 +938,15 @@ class CityState:
         cap = float(player.ship.capacity_tons)
         free = max(0.0, cap - used)
 
-        screen.blit(self.font_small.render("Laderaum", True, (220, 220, 220)), (cargo_panel.left + 10, cargo_panel.top + 10))
+        screen.blit(self.font_small.render(self.ctx.i18n.t("city.cargo.title"), True, (220, 220, 220)), (cargo_panel.left + 10, cargo_panel.top + 10))
         screen.blit(self.font_small.render(f"{int(round(used))}/{int(round(cap))} t", True, (220, 220, 220)), (cargo_panel.left + 10, cargo_panel.top + 30))
-        screen.blit(self.font_small.render(f"Frei: {int(round(free))} t", True, (220, 220, 220)), (cargo_panel.left + 10, cargo_panel.top + 50))
+        screen.blit(self.font_small.render(self.ctx.i18n.t("city.cargo.free", tons=int(round(free))), True, (220, 220, 220)), (cargo_panel.left + 10, cargo_panel.top + 50))
 
 
         tons_by = player.cargo.tons_by_good()
         y2 = cargo_panel.top + 70
         for gid, tons in sorted(tons_by.items(), key=lambda x: -x[1]):
-            name = self.ctx.content.goods[gid].name
+            name = self._t_good(gid)
             avg_map = self.ctx.trade_ui_state.get("avg_cost", {})
             avg = avg_map.get(gid, None)
 
@@ -1101,7 +1115,7 @@ class CityState:
         # Kapazität prüfen
         free = player.ship.capacity_tons - player.cargo.total_tons()
         if free <= 0.001:
-            self.message = "Kein Laderaum frei."
+            self.message = self.ctx.i18n.t("city.trade.no_space")
             return
 
         qty = min(qty, free)
@@ -1109,7 +1123,7 @@ class CityState:
         # Marktbestand prüfen
         available = market.stock.get(g.id, 0.0)
         if available <= 0.001:
-            self.message = "Markt ist leer."
+            self.message = self.ctx.i18n.t("city.trade.market_empty")
             return
 
         qty = min(qty, available)
@@ -1164,16 +1178,16 @@ class CityState:
             self._wac_remove(g.id)  # falls doch 0 (Edgecases)
 
         if bought <= 0.001:
-            self.message = "Zu wenig Geld für Kauf."
+            self.message = self.ctx.i18n.t("city.trade.not_enough_money")
         else:
-            self.message = f"Gekauft: {bought:.1f} t {g.name} für {cost_total:.0f}"
+            self.message = self.ctx.i18n.t("city.trade.bought", tons=bought, good=self._t_good(g.id), gold=cost_total)
 
     def _sell_good(self, g, market, need, target, lot_size, qty, apply_immediate_price_stock) -> None:
         player = self.ctx.player
 
         owned = player.cargo.tons_by_good().get(g.id, 0.0)
         if owned <= 0.001:
-            self.message = "Keine Ware im Laderaum."
+            self.message = self.ctx.i18n.t("city.trade.no_goods_owned")
             return
 
         qty = min(qty, owned)
@@ -1215,8 +1229,8 @@ class CityState:
             apply_immediate_price_stock(g.id)
 
         if sold <= 0.001:
-            self.message = "Verkauf nicht möglich."
+            self.message = self.ctx.i18n.t("city.trade.sell_not_possible")
         else:
-            self.message = f"Verkauft: {sold:.1f} t {g.name} für {revenue_total:.0f}"
+            self.message = self.ctx.i18n.t("city.trade.sold", tons=sold, good=self._t_good(g.id), gold=revenue_total)
         # Wenn Bestand 0, Einstandspreis löschen
         self._wac_remove(g.id)

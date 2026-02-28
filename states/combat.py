@@ -2069,18 +2069,18 @@ class CombatState:
                 cargo = self._pending_rewards.get("cargo", []) or []
 
                 if gold:
-                    lines.append(("gold", f"+{gold} Gold"))
+                    lines.append(("gold", self._t("combat.result.line.gold", gold=gold)))
                 if xp:
-                    lines.append(("xp", f"+{xp} XP"))
+                    lines.append(("xp", self._t("combat.result.line.xp", xp=xp)))
                 for gid, tons in cargo:
-                    lines.append(("cargo", f"+{tons:.2f} t {gid}", gid))
+                    lines.append(("cargo", self._t("combat.result.line.cargo", tons=float(tons), good=self._t_good(gid)), gid))
 
-                self._result_payload = {"title": "VICTORY", "lines": lines}
+                self._result_payload = {"title": self._t("combat.result.victory"), "lines": lines}
 
             elif getattr(self.engine, "outcome", None) == "lose":
-                self._result_payload = {"title": "DEFEAT", "lines": [("cargo", "You lost the battle.")]}
+                self._result_payload = {"title": self._t("combat.result.defeat"), "lines": [("cargo", self._t("combat.result.defeat_msg"))]}
             else:
-                self._result_payload = {"title": "ESCAPED", "lines": [("cargo", "You fled successfully.")]}  # fallback
+                self._result_payload = {"title": self._t("combat.result.escaped"), "lines": [("cargo", self._t("combat.result.escaped_msg"))]}  # fallback
 
             self._result_showing = True
             self._result_timer = 0.0
@@ -2122,7 +2122,7 @@ class CombatState:
             key = "player" if side == "player" else "enemy"
             r = self._unit_rects.get(key)
             if r:
-                self._add_float("CHEER!", r.centerx, r.top - 30, (220, 220, 120), crit=False, scale=1.1)
+                self._add_float(self._t("combat.float.cheer"), r.centerx, r.top - 30, (220, 220, 120), crit=False, scale=1.1)
 
         def add_burst(x, y, base_color):
             for _ in range(14):
@@ -2164,7 +2164,7 @@ class CombatState:
                     x = dst[0]
                     y = dst[1] - 40
 
-                self._add_float("MISS", x, y, (200, 200, 200), crit=False, scale=1.0)
+                self._add_float(self._t("combat.float.miss"), x, y, (200, 200, 200), crit=False, scale=1.0)
 
 
             # Damage numbers (placed ON the defender ship)
@@ -2227,7 +2227,7 @@ class CombatState:
 
         elif et == "flee":
             ok = bool(ev.get("success", ev.get("ok", False)))
-            self._add_float("ESCAPE!" if ok else "FAILED!", src[0], src[1] - 40, (200, 200, 240) if ok else (240, 140, 140))
+            self._add_float(self._t("combat.float.escape_ok") if ok else self._t("combat.float.escape_fail"), src[0], src[1] - 40, (200, 200, 240) if ok else (240, 140, 140))
 
         elif et == "morale_shift":
             tier = ev.get("tier")
@@ -2301,31 +2301,30 @@ class CombatState:
             yy += s.get_height() + 4
 
     def _stance_preview_lines(self, key: str) -> list[str]:
-        # key: "offensive" | "balanced" | "defensive"
         key = (key or "").lower()
 
         if key == "offensive":
-            name = "OFFENSIV"
+            name_key = "combat.stance.offensive"
             dmg, hit, rep, flee = 1.20, 1.10, 0.85, 0.85
-            note = "Mehr Schaden/Präzision, schlechtere Reparatur/Flucht."
+            note = self._t("combat.stance.note.offensive")
         elif key == "defensive":
-            name = "DEFENSIV"
+            name_key = "combat.stance.defensive"
             dmg, hit, rep, flee = 0.90, 0.90, 1.20, 1.25
-            note = "Bessere Reparatur/Flucht, weniger Schaden/Präzision."
+            note = self._t("combat.stance.note.defensive")
         else:
-            name = "AUSGEGLICHEN"
+            name_key = "combat.stance.balanced"
             dmg, hit, rep, flee = 1.00, 1.00, 1.00, 1.00
-            note = "Keine Stance-Boni/Mali."
+            note = self._t("combat.stance.note.balanced")
 
         def pct(mult: float) -> str:
             return f"{int(round((mult - 1.0) * 100)):+d}%"
 
         return [
-            f"HALTUNG: {name}",
-            f"Damage: {pct(dmg)}   Hit: {pct(hit)}",
-            f"Repair: {pct(rep)}   Flee: {pct(flee)}",
+            self._t("combat.stance.header", name=self._t(name_key)),
+            self._t("combat.stance.line2", dmg=pct(dmg), hit=pct(hit)),
+            self._t("combat.stance.line3", rep=pct(rep), flee=pct(flee)),
             note,
-            "Hinweis: Finale Werte werden zusätzlich durch Moral beeinflusst."
+            self._t("combat.stance.footer"),
         ]
 
     def _ability_tooltip_lines(self, ability_id: str) -> list[str]:
@@ -2362,7 +2361,7 @@ class CombatState:
             lo = max(1, lo)
             hi = max(lo, hi)
 
-            lines.append(f"Schaden: {lo}–{hi}")
+            lines.append(self._t("combat.tooltip.damage", lo=lo, hi=hi))
 
         # --- Heilung (nur wo sinnvoll/berechenbar) ---
         elif ability_id in ("repair", "quick_repair"):
@@ -2381,18 +2380,31 @@ class CombatState:
             heal = max(1, heal)
 
             # Repair kann failen – aber du wolltest nur Heilung anzeigen.
-            lines.append(f"Heilung: {heal}")
+            lines.append(self._t("combat.tooltip.heal", heal=heal))
 
         # --- Abklingzeit (wenn vorhanden) ---
         cd_total = int(getattr(spec, "cooldown_rounds", 0) or 0)
         if cd_total > 0:
             cd_left = int(eng._cd.get("player", {}).get(ability_id, 0) or 0)
             if cd_left > 0:
-                lines.append(f"Abklingzeit: {cd_total} (bereit in {cd_left})")
+                lines.append(self._t("combat.tooltip.cooldown_ready_in", total=cd_total, left=cd_left))
             else:
-                lines.append(f"Abklingzeit: {cd_total}")
+                lines.append(self._t("combat.tooltip.cooldown", total=cd_total))
 
         return lines
+    
+    def _t(self, k: str, **kwargs) -> str:
+        i18n = getattr(self.ctx, "i18n", None)
+        if i18n is None:
+            return k.format(**kwargs) if kwargs else k
+        return i18n.t(k, **kwargs)
+
+    def _t_good(self, gid: str) -> str:
+        # nutzt deine good.<id> Keys (City-Style)
+        i18n = getattr(self.ctx, "i18n", None)
+        if i18n is None:
+            return gid
+        return i18n.t(f"good.{gid}")
 
     def render(self, screen: pygame.Surface) -> None:
         HP_TEXT_GAP = -70
@@ -2447,8 +2459,13 @@ class CombatState:
                 )
         # Header
         ts = float(getattr(self.ctx.clock, "time_scale", 1.0))
-        speed_label = "PAUSE" if self.ctx.clock.paused else f"{ts:.0f}x"
-        title = self.font.render(f"COMBAT vs {self._enemy.name}   Speed: {speed_label}", True, (220, 220, 220))
+        if self.ctx.clock.paused:
+            speed_label = self._t("combat.hud.speed.paused")
+        else:
+            speed_label = self._t("combat.hud.speed.mult", x=ts)
+
+        hud_txt = self._t("combat.hud.title", enemy=self._enemy.name, speed=speed_label)
+        title = self.font.render(hud_txt, True, (220, 220, 220))
         screen.blit(title, (40, 30))
 
         # Bars
@@ -2525,12 +2542,13 @@ class CombatState:
 
         # HP bars (label is typically drawn by _draw_bar)
         self._draw_bar(screen, p_bar_x, p_bar_y, bar_w, bar_h,
-                    self._player.hp, self._player.hp_max, "Your HP", text_gap=HP_TEXT_GAP)
-        self._draw_bar(screen, e_bar_x, e_bar_y, bar_w, bar_h,
-                    self._enemy.hp, self._enemy.hp_max, "Enemy HP", text_gap=HP_TEXT_GAP)
+                    self._player.hp, self._player.hp_max, self._t("combat.hp.player"), text_gap=HP_TEXT_GAP)
 
-        self._draw_morale_bar(screen, p_bar_x, morale_bar_y, self._player.morale, "YOUR", text_gap=MORALE_TEXT_GAP)
-        self._draw_morale_bar(screen, e_bar_x, enemy_morale_bar_y, self._enemy.morale, "ENEMY", text_gap=MORALE_TEXT_GAP)
+        self._draw_bar(screen, e_bar_x, e_bar_y, bar_w, bar_h,
+                    self._enemy.hp, self._enemy.hp_max, self._t("combat.hp.enemy"), text_gap=HP_TEXT_GAP)
+
+        self._draw_morale_bar(screen, p_bar_x, morale_bar_y, self._player.morale, self._t("combat.morale.player"), text_gap=MORALE_TEXT_GAP)
+        self._draw_morale_bar(screen, e_bar_x, enemy_morale_bar_y, self._enemy.morale, self._t("combat.morale.enemy"), text_gap=MORALE_TEXT_GAP)
 
         # --- abilities (bottom grid, max 2 rows) ---
         ability_ids = list(self.engine._abilities.keys())
@@ -2544,7 +2562,8 @@ class CombatState:
             # enabled logic: only on player turn and not finished
             enabled = (not self.engine.finished) and (self.engine.turn_owner == "player")
             # you can add per-ability enable checks later
-            self._draw_button(screen, rect, aid.replace("_", " ").title(), enabled, ability_id=aid)
+            label = self._t(f"combat.ability.{aid}.name")
+            self._draw_button(screen, rect, label, enabled, ability_id=aid)
 
         # --- Hover Tooltip für Abilities (Schaden/Heilung/Abklingzeit) ---
         if not getattr(self, "_result_showing", False):
@@ -2967,7 +2986,7 @@ class CombatState:
 
 
         # Small hint
-        t = self.font.render("Returning...", True, (170, 170, 170))
+        t = self.font.render(self._t("combat.result.returning"), True, (170, 170, 170))
         screen.blit(t, (x + 28, y + box_h - 40))
 
     def _draw_loot_icon_fallback(self, screen, x: int, y: int, kind: str) -> None:

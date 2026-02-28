@@ -1,0 +1,302 @@
+{
+  "combat.hud.title": "KAMPF gegen {enemy}   Tempo: {speed}",
+  "combat.hud.speed.paused": "PAUSE",
+  "combat.hud.speed.mult": "{x:.0f}x",
+
+  "combat.hp.player": "Dein HP",
+  "combat.hp.enemy": "Gegner HP",
+  "combat.morale.player": "DEINE",
+  "combat.morale.enemy": "GEGNER",
+
+  "combat.float.miss": "VERFEHLT",
+  "combat.float.escape_ok": "FLUCHT!",
+  "combat.float.escape_fail": "GESCHNITZEN!",
+  "combat.float.cheer": "ANFEUERN!",
+
+  "combat.ability.fire.name": "Feuern",
+  "combat.ability.repair.name": "Reparieren",
+  "combat.ability.quick_repair.name": "Notfallreparatur",
+  "combat.ability.flee.name": "Fliehen",
+  "combat.ability.crew_cheer.name": "Crew anfeuern",
+
+  "combat.tooltip.damage": "Schaden: {lo}–{hi}",
+  "combat.tooltip.heal": "Heilung: {heal}",
+  "combat.tooltip.cooldown": "Abklingzeit: {total}",
+  "combat.tooltip.cooldown_ready_in": "Abklingzeit: {total} (bereit in {left})",
+
+  "combat.stance.header": "HALTUNG: {name}",
+  "combat.stance.offensive": "OFFENSIV",
+  "combat.stance.balanced": "AUSGEGLICHEN",
+  "combat.stance.defensive": "DEFENSIV",
+  "combat.stance.line2": "Schaden: {dmg}   Treffer: {hit}",
+  "combat.stance.line3": "Reparatur: {rep}   Flucht: {flee}",
+  "combat.stance.note.offensive": "Mehr Schaden/Präzision, schlechtere Reparatur/Flucht.",
+  "combat.stance.note.balanced": "Keine Stance-Boni/Mali.",
+  "combat.stance.note.defensive": "Bessere Reparatur/Flucht, weniger Schaden/Präzision.",
+  "combat.stance.footer": "Hinweis: Finale Werte werden zusätzlich durch Moral beeinflusst.",
+
+  "combat.result.victory": "SIEG",
+  "combat.result.defeat": "NIEDERLAGE",
+  "combat.result.escaped": "ENTKOMMEN",
+  "combat.result.line.gold": "+{gold} Gold",
+  "combat.result.line.xp": "+{xp} XP",
+  "combat.result.line.cargo": "+{tons:.2f} t {good}",
+  "combat.result.defeat_msg": "Du hast den Kampf verloren.",
+  "combat.result.escaped_msg": "Du bist erfolgreich geflohen.",
+  "combat.result.returning": "Zurück...",
+
+
+
+
+
+  "good.grain": "Getreide",
+  "good.bread": "Zwieback",
+  "good.beans": "Bohnen",
+  "good.potatoe": "Kartoffeln",
+  "good.dried_fish": "Trockenfisch",
+  "good.fish": "Fisch",
+  "good.meat": "Fleisch",
+  "good.salted_meat": "Pökelfleisch",
+  "good.cheese": "Käse",
+  "good.apple": "Äpfel",
+  "good.oil": "Öl",
+  "good.beer": "Bier",
+  "good.rum": "Rum",
+
+  "good.salt": "Salz",
+  "good.iron_ore": "Eisenerz",
+  "good.coal": "Kohle",
+  "good.timber": "Holz",
+  "good.hemp": "Hanf",
+  "good.flax": "Flachs",
+  "good.cotton": "Baumwolle",
+  "good.hides": "Felle",
+  "good.clay": "Ton",
+  "good.stone": "Stein",
+  "good.sulfur": "Schwefel",
+
+  "good.tools": "Werkzeuge",
+  "good.bricks": "Ziegel",
+  "good.paper": "Papier",
+  "good.barrels": "Fässer",
+  "good.nails": "Nägel",
+  "good.iron_ingots": "Eisenbarren",
+  "good.steel": "Stahl",
+  "good.medicine": "Heilmittel",
+
+  "good.rope": "Seile",
+  "good.sailcloth": "Segeltuch",
+  "good.tar": "Teer",
+  "good.planks": "Planken",
+  "good.canvas": "Leinwand",
+  "good.charts": "Seekarten",
+
+  "good.painting": "Gemälde",
+  "good.wine": "Wein",
+  "good.silk": "Seide",
+  "good.jewelry": "Schmuck",
+  "good.porcelain": "Porzellan",
+  "good.spices": "Gewürze",
+  "good.tobacco": "Tabak",
+  "good.coffee": "Kaffee",
+  "good.tea": "Tee",
+  "good.sugar": "Zucker",
+  "good.perfume": "Parfüm",
+  "good.books": "Bücher",
+
+
+
+
+  "city.hud": "Tag: {day} | Geld: {money}",
+  "city.msg.new_day": "Neuer Tag begonnen.",
+
+  "city.table.market": "Markt",
+  "city.table.sell": "Verkaufen",
+  "city.table.buy": "Kaufen",
+  "city.table.you": "Du",
+
+  "city.cargo.title": "Laderaum",
+  "city.cargo.free": "Frei: {tons} t",
+
+  "city.cat.fav": "FAV",
+  "city.cat.food": "Nahrung",
+  "city.cat.raw": "Rohstoffe",
+  "city.cat.craft": "Waren",
+  "city.cat.sea": "Schiff",
+  "city.cat.luxury": "Luxus",
+
+  "city.trade.no_space": "Kein Laderaum frei.",
+  "city.trade.market_empty": "Markt ist leer.",
+  "city.trade.not_enough_money": "Zu wenig Geld für Kauf.",
+  "city.trade.no_goods_owned": "Keine Ware im Laderaum.",
+  "city.trade.sell_not_possible": "Verkauf nicht möglich.",
+
+  "city.trade.bought": "Gekauft: {tons:.1f} t {good} für {gold:.0f}",
+  "city.trade.sold": "Verkauft: {tons:.1f} t {good} für {gold:.0f}",
+
+
+
+
+  "menu.start": "Spiel starten",
+  "menu.load": "Spiel laden",
+  "menu.options": "Optionen",
+  "menu.quit": "Spiel beenden",
+  "menu.no_save": "Kein Savegame gefunden",
+  "menu.save_missing_meta": "Save vorhanden, aber Metadaten fehlen.",
+
+  "options.title": "OPTIONEN",
+  "options.row.volume": "Lautstärke",
+  "options.hint.volume": "←/→ oder ziehen mit Maus",
+  "options.row.language": "Sprache",
+  "options.language.de": "Deutsch",
+  "options.language.en": "English",
+  "options.row.controls": "Steuerung (Hinweis)",
+
+  "options.controls.k1": "W / A / S / D",
+  "options.controls.v1": "Schiff steuern",
+  "options.controls.k2": "Pfeiltasten",
+  "options.controls.v2": "Schiff steuern (Alternative)",
+  "options.controls.k3": "E",
+  "options.controls.v3": "Andocken / Stadt betreten (wenn verfügbar)",
+  "options.controls.k4": "SPACE",
+  "options.controls.v4": "Pause an/aus",
+  "options.controls.k5": "TAB",
+  "options.controls.v5": "Zeitgeschwindigkeit wechseln",
+  "options.controls.k6": "ESC",
+  "options.controls.v6": "Pause-Menü / Zurück",
+  "options.controls.k7": "Mausrad",
+  "options.controls.v7": "Scrolling (z.B. Menüs/Listen, falls offen)",
+
+  "ui.back": "Zurück",
+
+
+
+  "char.difficulty": "Schwierigkeit",
+  "char.start_money": "Startgeld: {money}",
+  "char.ship_panel.title": "Startschiff",
+  "char.ship.stat.capacity": "Kapazität: {value}",
+  "char.ship.stat.speed": "Geschwindigkeit: {value}",
+  "char.ship.stat.hp": "Leben: {value}",
+  "char.ship.stat.armor": "Rüstung: {value}",
+  "char.ship.stat.cannons": "Kanonen: {value}",
+  "char.ship.stat.damage": "Schaden: {value}",
+
+  "char.perks.title": "{name} – PERKS",
+  "char.perks.gold": "Gold: Start {money}",
+  "char.perks.bonus": "Bonus: {parts}",
+  "char.perks.trade": "Handel: Kaufen {buy}% | Verkaufen {sell}%",
+  "char.perks.trade.none": "Handel: —",
+  "char.perks.attack": "Angriff: {value}",
+  "char.perks.attack.none": "Angriff: —",
+  "char.perks.defense": "Verteidigung: {value}",
+  "char.perks.defense.none": "Verteidigung: —",
+
+  "char.btn.back_fallback": "Zurück",
+
+  "char.title": "CHARAKTERWAHL",
+  "char.subtitle": "Wähle deinen Startcharakter",
+  "char.btn.start": "Spiel starten",
+  "char.btn.back": "Zurück",
+  "char.hint": "Klicke einen Charakter an, um Details zu sehen.",
+
+  "char.section.start": "START",
+  "char.section.stats": "WERTE",
+  "char.section.perks": "BONI",
+  "char.section.flaws": "NACHTEILE",
+
+  "char.label.start_ship": "Startschiff",
+  "char.label.start_gold": "Startgold",
+  "char.label.start_cargo": "Startladung",
+
+  "char.stat.trade": "Handel",
+  "char.stat.combat": "Kampf",
+  "char.stat.sailing": "Navigation",
+  "char.stat.repair": "Reparatur",
+
+  "char.tip.trade": "Bessere Preise und bessere Deals.",
+  "char.tip.combat": "Stärker in Kämpfen und Enteraktionen.",
+  "char.tip.sailing": "Schneller, bessere Kontrolle, weniger Drift.",
+  "char.tip.repair": "Effizienteres Reparieren, weniger Kosten.",
+
+  "char.cargo.none": "Keine",
+
+  "char.name.0": "Der Händler",
+  "char.desc.0": "Du startest mit mehr Gold und besseren Handelsbedingungen, bist aber im Kampf schwächer.",
+  "char.name.1": "Der Freibeuter",
+  "char.desc.1": "Stark im Kampf und beim Entern, aber weniger geeignet für feine Handelsrouten.",
+  "char.name.2": "Der Navigator",
+  "char.desc.2": "Bessere Kontrolle und Geschwindigkeit auf See – ideal für riskante Routen.",
+  "char.name.3": "Der Schiffszimmermann",
+  "char.desc.3": "Reparaturen sind effizient und günstig, ideal für längere Expeditionen.",
+
+
+
+
+
+  "stats.section.ship_combat": "SCHIFFSKAMPF",
+  "stats.section.player_mods": "SPIELER-MODIFIKATOREN",
+  "stats.section.progression": "FORTSCHRITT",
+
+  "stats.msg.no_ship_data": "Keine Schiff-Kampfdaten gefunden.",
+  "stats.mod.cannon_damage": "Kanonen-Schaden",
+  "stats.mod.reload_speed": "Nachladezeit",
+  "stats.mod.boarding_damage": "Enter-Schaden",
+  "stats.mod.repair_power": "Reparatur",
+  "stats.mod.evade": "Ausweichen",
+  "stats.mod.flee": "Flucht",
+  "stats.progress.gold": "Gold",
+  "stats.progress.xp": "XP",
+  "stats.progress.master_lives": "Masterleben",
+  "stats.hint": "Mausrad scrollen • Außen klicken oder ESC zum Schließen",
+
+  "ui.dock_prompt": "{key} = Andocken",
+  "hud.day_timescale": "Tag {day}  ZeitScale: {scale:.2f}  {paused}",
+  "hud.paused": "PAUSE",
+  "stats.menu.title": "SPIELERWERTE",
+
+  "stats.label.ship": "Schiff",
+  "stats.label.hp": "Leben",
+  "stats.label.armor_phys": "Rüstung (Physisch)",
+  "stats.label.armor_abyss": "Rüstung (Abyssal)",
+  "stats.label.atk_base": "Angriff (Basis)",
+  "stats.label.atk_eff": "Angriff (Effektiv)",
+  "stats.label.pen": "Penetration",
+  "stats.label.crit": "Krit",
+  "stats.label.initiative": "Initiative",
+  "stats.label.info": "Info",
+
+  "intro.title": "DEIN ERSTER AUFTRAG",
+  "intro.p1": "Du bist frisch aus dem Schatten eines gesunkenen Konvois geklettert. Ein zerrissener Seekarten-Fetzen und ein halbleerer Rumkrug. Die Handelsliga von Aurelio.",
+  "intro.p2": "Sie zahlen gut, aber sie vergeben nur EINEN Vertrag: Verdiene dir deinen Platz zurück in der Welt.",
+  "intro.goal": "ZIEL: Erreiche {gold} Gold, bevor dich Piraten, Stürme und Schulden einholen.",
+  "intro.tip": "TIPP: Handle zwischen Häfen, investiere klug, vermeide Kämpfe wenn du schwach bist.",
+  "intro.hint": "Klicke oder drücke ENTER, um zu starten.",
+
+  "goal.title": "HAUPTZIEL",
+  "goal.line": "Erreiche {goal} Gold  |  Aktuell: {money}",
+
+  "controls.title": "STEUERUNG",
+  "controls.l2": "WASD / Pfeiltasten: Segeln",
+  "controls.l3": "E: Andocken   SPACE: Pause   TAB: Speed",
+
+  "stats.title": "PLAYER STATS",
+
+  "tip.xp.level": "Level: {lvl}",
+  "tip.xp.level_max": "Level: {lvl} (MAX)",
+  "tip.xp.total": "XP gesamt: {xp}",
+  "tip.xp.progress": "Aktuell: {cur} / {need}",
+  "tip.xp.to_next": "Bis Level {next_lvl}: {remaining}",
+
+  "tip.ml.title": "MASTERLEBEN",
+  "tip.ml.value": "{cur} / {max}",
+  "tip.ml.l1": "Im Kampf verlierst du Masterleben,",
+  "tip.ml.l2": "wenn dein Schiff zerstört wird.",
+  "tip.ml.l3": "Bei 0 Masterleben ist das Spiel verloren.",
+
+  "tip.baro.title": "GEFAHREN-BAROMETER",
+  "tip.baro.l1": "Zeigt an, wie riskant deine aktuelle Lage ist.",
+  "tip.baro.l2": "Hoher Wert = höhere Wahrscheinlichkeit,",
+  "tip.baro.l3": "in einen Kampf/Encounter zu geraten."
+
+
+}

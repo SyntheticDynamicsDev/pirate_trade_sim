@@ -20,7 +20,7 @@ class OptionsState:
     bg_snapshot: Optional[pygame.Surface] = None
 
     # ui
-    selected_row: int = 0  # 0 = volume, 1 = controls
+    selected_row: int = 0  # 0 = volume, 1 = language, 2 = controls
     volume_pct: int = 55   # 0..100
     dragging: bool = False
 
@@ -74,21 +74,30 @@ class OptionsState:
                 return
 
             if event.key in (pygame.K_DOWN, pygame.K_s):
-                self.selected_row = min(1, self.selected_row + 1)
+                self.selected_row = min(2, self.selected_row + 1)
                 return
 
             if event.key in (pygame.K_LEFT, pygame.K_a):
                 if self.selected_row == 0:
                     self._set_volume(self.volume_pct - 5)
-                return
+                    return
+                if self.selected_row == 1:
+                    self._toggle_language()
+                    return
 
             if event.key in (pygame.K_RIGHT, pygame.K_d):
                 if self.selected_row == 0:
                     self._set_volume(self.volume_pct + 5)
-                return
+                    return
+                if self.selected_row == 1:
+                    self._toggle_language()
+                    return
 
             if event.key in (pygame.K_RETURN, pygame.K_SPACE):
-                # On controls row: nothing interactive yet (it’s a hint panel)
+                if self.selected_row == 1:
+                    self._play_click()
+                    self._toggle_language()
+                    return
                 self._play_click()
                 return
 
@@ -110,10 +119,18 @@ class OptionsState:
                 self._apply_volume_from_mouse(mx, vol_track)
                 return
 
+            # click on language header selects row
+            lang_rect = self._language_header_rect(self.game.screen.get_size())
+            if lang_rect.collidepoint(mx, my):
+                self.selected_row = 1
+                self._play_click()
+                self._toggle_language()
+                return
+            
             # click on controls header selects row
             controls_rect = self._controls_header_rect(self.game.screen.get_size())
             if controls_rect.collidepoint(mx, my):
-                self.selected_row = 1
+                self.selected_row = 2
                 self._play_click()
                 return
 
@@ -209,7 +226,7 @@ class OptionsState:
             screen.blit(fallback, (panel.x, panel.y))
 
         # title
-        title = self.title_font.render("OPTIONEN", True, (240, 240, 240))
+        title = self.title_font.render(self.ctx.i18n.t("options.title"), True, (240, 240, 240))
         screen.blit(title, (panel.x + 22, panel.y + 16))
 
         # --- Volume row ---
@@ -217,7 +234,7 @@ class OptionsState:
         self._draw_row_header(
             screen,
             rect=pygame.Rect(panel.x + 22, y0, panel.w - 44, 48),
-            text="Lautstärke",
+            text=self.ctx.i18n.t("options.row.volume"),
             selected=(self.selected_row == 0),
         )
 
@@ -228,28 +245,43 @@ class OptionsState:
         vol_txt = self.body_font.render(f"{self.volume_pct}%", True, (240, 240, 240))
         screen.blit(vol_txt, vol_txt.get_rect(midleft=(vol_track.right + 16, vol_track.centery)))
 
-        hint = self.small_font.render("←/→ oder ziehen mit Maus", True, (190, 190, 200))
+        hint = self.small_font.render(self.ctx.i18n.t("options.hint.volume"), True, (190, 190, 200))
         screen.blit(hint, (vol_track.x, vol_track.bottom + 10))
 
+        # --- Language row ---
+        y_lang = vol_track.bottom + 42
+        lang_header = pygame.Rect(panel.x + 22, y_lang, panel.w - 44, 48)
+        self._draw_row_header(
+            screen,
+            rect=lang_header,
+            text=self.ctx.i18n.t("options.row.language"),
+            selected=(self.selected_row == 1),
+        )
+
+        cur_lang = getattr(self.ctx, "lang", "de")
+        lang_value_key = "options.language.de" if cur_lang == "de" else "options.language.en"
+        lang_value = self.body_font.render(self.ctx.i18n.t(lang_value_key), True, (240, 240, 240))
+        screen.blit(lang_value, lang_value.get_rect(midright=(lang_header.right - 16, lang_header.centery)))
+
         # --- Controls row ---
-        y1 = vol_track.bottom + 58
+        y1 = y_lang + 48 + 24
         controls_header = pygame.Rect(panel.x + 22, y1, panel.w - 44, 48)
         self._draw_row_header(
             screen,
             rect=controls_header,
-            text="Steuerung (Hinweis)",
-            selected=(self.selected_row == 1),
+            text=self.ctx.i18n.t("options.row.controls"),
+            selected=(self.selected_row == 2),
         )
 
         # controls text block
         lines = [
-            ("W / A / S / D", "Schiff steuern"),
-            ("Pfeiltasten", "Schiff steuern (Alternative)"),
-            ("E", "Andocken / Stadt betreten (wenn verfügbar)"),
-            ("SPACE", "Pause an/aus"),
-            ("TAB", "Zeitgeschwindigkeit wechseln"),
-            ("ESC", "Pause-Menü / Zurück"),
-            ("Mausrad", "Scrolling (z.B. Menüs/Listen, falls offen)"),
+            (self.ctx.i18n.t("options.controls.k1"), self.ctx.i18n.t("options.controls.v1")),
+            (self.ctx.i18n.t("options.controls.k2"), self.ctx.i18n.t("options.controls.v2")),
+            (self.ctx.i18n.t("options.controls.k3"), self.ctx.i18n.t("options.controls.v3")),
+            (self.ctx.i18n.t("options.controls.k4"), self.ctx.i18n.t("options.controls.v4")),
+            (self.ctx.i18n.t("options.controls.k5"), self.ctx.i18n.t("options.controls.v5")),
+            (self.ctx.i18n.t("options.controls.k6"), self.ctx.i18n.t("options.controls.v6")),
+            (self.ctx.i18n.t("options.controls.k7"), self.ctx.i18n.t("options.controls.v7")),
         ]
 
         tx = panel.x + 34
@@ -263,11 +295,45 @@ class OptionsState:
 
         # back button
         back_rect = self._back_button_rect((sw, sh), panel=panel)
-        self._draw_button(screen, back_rect, "Zurück")
+        self._draw_button(screen, back_rect, self.ctx.i18n.t("ui.back"))
 
     # ----------------------------
     # Layout helpers
     # ----------------------------
+
+    def _language_header_rect(self, size: Tuple[int, int]) -> pygame.Rect:
+        sw, sh = size
+        panel_w = int(min(860, sw * 0.72))
+        panel_h = int(min(560, sh * 0.72))
+        panel = pygame.Rect(0, 0, panel_w, panel_h)
+        panel.center = (sw // 2, sh // 2)
+
+        y0 = panel.y + 90
+        vol_track, _ = self._volume_rects((sw, sh), panel=panel, top=y0 + 56)
+        y_lang = vol_track.bottom + 42
+        return pygame.Rect(panel.x + 22, y_lang, panel.w - 44, 48)
+
+    def _toggle_language(self) -> None:
+        cur = getattr(self.ctx, "lang", "de")
+        new = "en" if cur == "de" else "de"
+        self._set_language(new)
+
+    def _set_language(self, lang: str) -> None:
+        if lang not in ("de", "en"):
+            return
+        self.ctx.lang = lang
+        i18n = getattr(self.ctx, "i18n", None)
+        if i18n is not None:
+            try:
+                i18n.set_lang(lang)
+            except Exception:
+                # fallback: reload
+                try:
+                    i18n.lang = lang
+                    i18n.load()
+                except Exception:
+                    pass
+
     def _volume_rects(self, size: Tuple[int, int], panel: Optional[pygame.Rect] = None, top: Optional[int] = None):
         sw, sh = size
         if panel is None:

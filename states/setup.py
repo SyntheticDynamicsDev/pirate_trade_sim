@@ -14,6 +14,7 @@ class NewGameSetupState:
     game: Any = None
     ctx: Any = None
     font: Optional[pygame.font.Font] = None
+    
 
     def on_enter(self) -> None:
         from core.ui_text import FontBank, TextStyle, render_text
@@ -40,6 +41,19 @@ class NewGameSetupState:
         # Direkt starten (kein Setup-Fenster mehr)
         self.ctx.content = load_content("content")
 
+        # --- i18n (DE/EN) ---
+        from core.i18n import I18N
+
+        # default language: DE, but allow override via run_config (or later settings/menu)
+        rc = getattr(self.ctx, "run_config", None)
+        lang = getattr(rc, "lang", None) if rc is not None else None
+        if lang not in ("de", "en"):
+            lang = "de"
+
+        self.ctx.lang = lang
+        self.ctx.i18n = I18N(lang=self.ctx.lang)
+        self.ctx.i18n.load()
+        
         # --- Cities laden + ggf. auf Screen (1280x720) skalieren ---
         cities = []
 
@@ -138,39 +152,13 @@ class NewGameSetupState:
         from economy.economy import EconomyEngine
 
         self.ctx.economy = EconomyEngine()
-        self.ctx.markets = {}
-
-        for city in self.ctx.world.cities:
-            cdef = self.ctx.content.cities[city.id]
-            ctype = self.ctx.content.city_types[cdef.city_type_id]
-
-            market = CityMarketState(city_id=city.id)
-
-            for g in self.ctx.content.goods.values():
-                need = ctype.needs.get(g.category, "normal")
-                need_target_mult = self.ctx.economy.NEED_TARGET_MULT.get(need, 1.0)
-
-                target = g.target_stock * need_target_mult
-
-
-                target = g.target_stock * need_target_mult
-                stock = target * ctype.initial_stock_multiplier
-
-                tweak = (hash(city.id + g.id) % 21 - 10) / 100.0
-                stock *= (1.0 + tweak)
-
-                market.stock[g.id] = max(0.0, round(stock, 1))
-                market.pending[g.id] = 0.0
-                market.price_stock[g.id] = market.stock[g.id]
-
-            self.ctx.markets[city.id] = market
+        from economy.market import generate_all_markets  # je nach Pfad bei dir: market.py liegt evtl. in core/
+        self.ctx.markets = generate_all_markets(self.ctx)
 
         from core.day_update import _update_top_needs
         _update_top_needs(self.ctx)
 
         self.game.replace(WorldMapState())
-
-        
 
     def on_exit(self) -> None:
         ...

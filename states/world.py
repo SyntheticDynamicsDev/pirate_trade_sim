@@ -153,11 +153,39 @@ class WorldMapState:
 
         self._wind = pygame.Vector2(22.0, 6.0)  # px/s² (wie gehabt)
 
+        # --- Sky Clouds (ui/air/cloud1-3) ---
+        self._cloud_imgs_raw = []
+        self._cloud_instances = []
+        self._cloud_cache = {}  # (img_index, w, h) -> scaled surface
+
+        sw, sh = SCREEN_W, SCREEN_H
+        self._cloud_count = 12 if sw <= 1600 else 16  # oder 10/14
+        # config (tweakbar)
+        self._cloud_count = 18
+        self._cloud_alpha_min = int(255 * 0.05)  # 5%
+        self._cloud_alpha_max = int(255 * 0.20)  # 20%
+        self._cloud_scale_min = 0.80
+        self._cloud_scale_max = 1.20
+        self._cloud_wrap_pad = 220  # extra padding for wrap
+
+        try:
+            base_dir = os.path.join("assets", "ui", "air")
+            # accept both with/without .png
+            names = ["cloud1.png", "cloud2.png", "cloud3.png"]
+            for n in names:
+                p = os.path.join(base_dir, n)
+                if os.path.exists(p):
+                    self._cloud_imgs_raw.append(pygame.image.load(p).convert_alpha())
+        except Exception:
+            self._cloud_imgs_raw = []
+            self._cloud_instances = []
+            self._cloud_cache = {}
+
         # --- Map Transition Arrows (2x2 spritesheet, use TOP row only) ---
         self._arrow_frames = []
         self._arrow_frame_i = 0
         self._arrow_anim_t = 0.0
-        self._arrow_fps = 7.0  # Speed der Animation
+        self._arrow_fps = 3.0  # Speed der Animation
 
         try:
             sheet_path = os.path.join("assets", "ui", "arrows.png")
@@ -174,6 +202,7 @@ class WorldMapState:
             self._arrow_frames = []
 
         self._load_current_map_assets()
+        self._respawn_clouds()
         self._spawn_ship_safely()
         self._ensure_ship_on_water()
         self._wake = WakeSystem()
@@ -314,19 +343,13 @@ class WorldMapState:
         self._goal_gold = int(getattr(settings, "WIN_GOLD_TARGET", 15000))
 
         # Storytext
-        self._intro_title = "DEIN ERSTER AUFTRAG"
+        gold_str = f"{self._goal_gold:,}".replace(",", ".")
+        self._intro_title = self.ctx.i18n.t("intro.title")
         self._intro_paragraphs = [
-            "Du bist frisch aus dem Schatten eines gesunkenen Konvois geklettert. "
-            "Ein zerrissener Seekarten-Fetzen und ein halbleerer Rumkrug."
-            "die Handelsliga von Aurelio.",
-
-            "Sie zahlen gut, aber sie vergeben nur EINEN Vertrag: "
-            "Verdiene dir deinen Platz zurück in der Welt.",
-
-            f"ZIEL: Erreiche {self._goal_gold:,} Gold, bevor dich Piraten, Stürme und Schulden einholen."
-            .replace(",", "."),
-
-            "TIPP: Handle zwischen Häfen, investiere klug, vermeide Kämpfe wenn du schwach bist.",
+            self.ctx.i18n.t("intro.p1"),
+            self.ctx.i18n.t("intro.p2"),
+            self.ctx.i18n.t("intro.goal", gold=gold_str),
+            self.ctx.i18n.t("intro.tip"),
         ]
 
         # --- Controls Hint (WASD) ---
@@ -612,6 +635,43 @@ class WorldMapState:
             heading_deg = -math.degrees(math.atan2(vel.x, vel.y))
             ship.heading = math.radians(heading_deg)
             
+        # --- Clouds drift (same direction as ship drift) ---
+        if sim_dt > 0.0 and getattr(self, "_cloud_instances", None):
+            sw, sh = SCREEN_W, SCREEN_H
+
+            # direction = ship vel, fallback = wind
+            ship = self.ctx.player.ship
+            v = pygame.Vector2(float(ship.vel[0]), float(ship.vel[1]))
+            if v.length_squared() < 25.0:  # ~5 px/s threshold
+                v = pygame.Vector2(getattr(self, "_wind", pygame.Vector2(10.0, 0.0)))
+
+            # normalize direction, choose a pleasant base speed
+            if v.length_squared() > 0.0001:
+                dir_ = v.normalize()
+            else:
+                dir_ = pygame.Vector2(1.0, 0.0)
+
+            # base cloud speed in px/s
+            base_speed = max(14.0, min(90.0, v.length() * 0.25))
+
+            # move + wrap
+            pad = int(getattr(self, "_cloud_wrap_pad", 200))
+
+            for c in self._cloud_instances:
+                spd = base_speed * float(c["drift_mult"])
+                c["x"] += dir_.x * spd * sim_dt
+                c["y"] += dir_.y * spd * sim_dt * 0.25  # much less vertical drift
+
+                # wrap with padding
+                if c["x"] < -pad:
+                    c["x"] = sw + pad
+                elif c["x"] > sw + pad:
+                    c["x"] = -pad
+
+                if c["y"] < -pad:
+                    c["y"] = sh + pad
+                elif c["y"] > sh + pad:
+                    c["y"] = -pad
 
         self._check_map_transition()
 
@@ -840,6 +900,7 @@ class WorldMapState:
 
             # 3) Map-Assets/Cache laden, aber ohne Respawn-Logik
             self._load_current_map_assets()
+            self._respawn_clouds()
 
             # 4) Nur sicherstellen, dass Spawn auf Wasser landet
             self._ensure_ship_on_water()
@@ -899,6 +960,100 @@ class WorldMapState:
             "transition_markers": self._transition_markers,
 
         }
+        
+    def _get_cloud_surface(self, img_i: int, scale: float, alpha: int) -> pygame.Surface:
+        """
+        Returns a cached surface for (image, scale, alpha).
+        No per-frame copies in render.
+        """
+        if not getattr(self, "_cloud_imgs_raw", None):
+            raise RuntimeError("Cloud images not loaded")
+
+        base = self._cloud_imgs_raw[img_i]
+        w = max(1, int(base.get_width() * scale))
+        h = max(1, int(base.get_height() * scale))
+
+        # quantize for better cache hit rate
+        a = int(alpha)
+        s_key = int(round(scale * 100))  # 0.80 -> 80, 1.20 -> 120
+        key = (img_i, w, h, a, s_key)
+
+        cache = getattr(self, "_cloud_cache", None)
+        if cache is None:
+            self._cloud_cache = {}
+            cache = self._cloud_cache
+
+        surf = cache.get(key)
+        if surf is not None:
+            return surf
+
+        scaled = pygame.transform.smoothscale(base, (w, h))
+        scaled.set_alpha(a)  # set ONCE
+        cache[key] = scaled
+
+        # keep cache bounded
+        if len(cache) > 200:
+            cache.clear()
+
+        return scaled
+
+    def _respawn_clouds(self) -> None:
+        """Randomize cloud placement/variants every time we enter a map."""
+        self._cloud_instances = []
+        self._cloud_cache = {}
+
+        if not getattr(self, "_cloud_imgs_raw", None):
+            return
+
+        import random
+        # non-deterministic seed -> different each entry
+        rng = random.Random()
+
+        count = int(getattr(self, "_cloud_count", 18))
+
+        # 1–2 featured clouds with higher opacity (~50%)
+        featured = rng.randint(1, 2) if count >= 2 else 1
+        featured_slots = set(rng.sample(range(count), featured))
+
+        sw, sh = SCREEN_W, SCREEN_H
+        pad = int(getattr(self, "_cloud_wrap_pad", 220))
+
+        for i in range(count):
+            img_i = rng.randrange(0, len(self._cloud_imgs_raw))
+
+            # IMPORTANT: check slot index i, not img_i
+            if i in featured_slots:
+                alpha = int(255 * rng.uniform(0.45, 0.55))  # ~50% (45–55)
+            else:
+                alpha = rng.randint(int(self._cloud_alpha_min), int(self._cloud_alpha_max))
+
+            scale = rng.uniform(
+                float(getattr(self, "_cloud_scale_min", 0.80)),
+                float(getattr(self, "_cloud_scale_max", 1.20)),
+            )
+
+            drift_mult = rng.uniform(0.10, 0.30)
+            bob_amp = rng.uniform(1.0, 6.0)
+            bob_spd = rng.uniform(0.4, 1.1)
+            bob_phase = rng.uniform(0.0, 6.28318)
+
+            x = rng.uniform(-pad, sw + pad)
+            y = rng.uniform(-60, sh * 0.55)
+
+            surf = self._get_cloud_surface(img_i, scale, alpha)
+
+            self._cloud_instances.append({
+                "img_i": int(img_i),
+                "x": float(x),
+                "y": float(y),
+                "alpha": int(alpha),
+                "scale": float(scale),
+                "drift_mult": float(drift_mult),
+                "bob_amp": float(bob_amp),
+                "bob_spd": float(bob_spd),
+                "bob_phase": float(bob_phase),
+                "surf": surf,
+            })
 
     def _draw_tooltip(self, screen, pos, lines, font=None):
         """Kleines Tooltip-Panel an Mausposition, clamped im Screen."""
@@ -961,6 +1116,17 @@ class WorldMapState:
         player = self.ctx.player
         # Map background (fixed)
         screen.blit(self._map_visual, (0, 0))
+
+        # --- Sky clouds (fast path: precomputed surfaces) ---
+        if getattr(self, "_cloud_instances", None):
+            t = float(getattr(self, "_ship_time", 0.0))
+            for c in self._cloud_instances:
+                surf = c.get("surf")
+                if not surf:
+                    continue
+
+                y = float(c["y"]) + math.sin(t * float(c["bob_spd"]) + float(c["bob_phase"])) * float(c["bob_amp"])
+                screen.blit(surf, (int(c["x"]), int(y)))
 
         # --- Transition arrows (show where the world continues) ---
         if getattr(self, "_arrow_frames", None) and getattr(self, "_transition_markers", None):
@@ -1109,7 +1275,7 @@ class WorldMapState:
         if dockable_any:
             ship_x, ship_y = ship_pos
 
-            prompt_text = "E = Andocken"
+            prompt_text = self.ctx.i18n.t("ui.dock_prompt", key="E")
 
             # größere & dickere Schrift
             prompt_font = self._fonts.get(24, bold=True)
@@ -1129,8 +1295,9 @@ class WorldMapState:
 
         # HUD
         day = self.ctx.clock.day
-        paused = "PAUSE" if self.ctx.clock.paused else ""
-        hud = self.font.render(f"Tag {day}  ZeitScale: {self.ctx.clock.time_scale:.2f}  {paused}", True, (200,200,200))
+        paused = self.ctx.i18n.t("hud.paused") if self.ctx.clock.paused else ""
+        hud_text = self.ctx.i18n.t("hud.day_timescale", day=day, scale=float(self.ctx.clock.time_scale), paused=paused)
+        hud = self.font.render(hud_text, True, (200, 200, 200))
         screen.blit(hud, (20, 20))
 
         # --- UI background box for XP + Gold (bottom-left) ---
@@ -1223,112 +1390,72 @@ class WorldMapState:
             mx, my = pygame.mouse.get_pos()
             mouse = (mx, my)
 
-            # Sammle Kandidaten in Prioritätsreihenfolge (höchste zuerst)
+            # --- Tooltip candidates (priority) ---
             candidates = []
 
+            mx, my = pygame.mouse.get_pos()
+            mouse = (mx, my)
+
+            # STATS button tooltip (example if you have it in this block)
             r = getattr(self, "_stats_btn_rect", None)
             if r is not None and r.collidepoint(mx, my):
-                candidates.append(("STATS", ["STATS"]))
+                candidates.append(("STATS", [self.ctx.i18n.t("stats.title")]))
 
+            # XP panel tooltip
             r = getattr(self, "_xp_panel_rect", None)
             if r is not None and r.collidepoint(mx, my):
                 xp = int(getattr(self.ctx.player, "xp", 0))
                 lvl, cur, need = xp_to_level(xp)
+
                 if lvl >= 10 or need <= 0:
-                    lines = [f"Level: {lvl} (MAX)", f"XP gesamt: {xp}"]
+                    lines = [
+                        self.ctx.i18n.t("tip.xp.level_max", lvl=lvl),
+                        self.ctx.i18n.t("tip.xp.total", xp=xp),
+                    ]
                 else:
                     remaining = max(0, int(need - cur))
                     lines = [
-                        f"Level: {lvl}",
-                        f"XP gesamt: {xp}",
-                        f"Aktuell: {int(cur)} / {int(need)}",
-                        f"Bis Level {lvl + 1}: {remaining}",
+                        self.ctx.i18n.t("tip.xp.level", lvl=lvl),
+                        self.ctx.i18n.t("tip.xp.total", xp=xp),
+                        self.ctx.i18n.t("tip.xp.progress", cur=int(cur), need=int(need)),
+                        self.ctx.i18n.t("tip.xp.to_next", next_lvl=lvl + 1, remaining=remaining),
                     ]
-                candidates.append(("XP", lines))
+                candidates.append(("XP", lines))  # <- BUGFIX: lines exist
 
+            # Master lives tooltip
             r = getattr(self, "_ml_rect", None)
             if r is not None and r.collidepoint(mx, my):
                 p = self.ctx.player
                 ml = int(getattr(p, "master_lives", 0))
                 ml_max = int(getattr(p, "master_lives_max", 3))
                 candidates.append(("ML", [
-                    "MASTERLEBEN",
-                    f"{ml} / {ml_max}",
-                    "Im Kampf verlierst du Masterleben,",
-                    "wenn dein Schiff zerstört wird.",
-                    "Bei 0 Masterleben ist das Spiel verloren.",
+                    self.ctx.i18n.t("tip.ml.title"),
+                    self.ctx.i18n.t("tip.ml.value", cur=ml, max=ml_max),
+                    self.ctx.i18n.t("tip.ml.l1"),
+                    self.ctx.i18n.t("tip.ml.l2"),
+                    self.ctx.i18n.t("tip.ml.l3"),
                 ]))
 
+            # Danger meter tooltip
             r = getattr(self, "_baro_rect", None)
             if r is not None and r.collidepoint(mx, my):
                 candidates.append(("BARO", [
-                    "GEFAHREN-BAROMETER",
-                    "Zeigt an, wie riskant deine aktuelle Lage ist.",
-                    "Hoher Wert = höhere Wahrscheinlichkeit,",
-                    "in einen Kampf/Encounter zu geraten.",
+                    self.ctx.i18n.t("tip.baro.title"),
+                    self.ctx.i18n.t("tip.baro.l1"),
+                    self.ctx.i18n.t("tip.baro.l2"),
+                    self.ctx.i18n.t("tip.baro.l3"),
                 ]))
 
-            # Zeichne NUR den ersten Treffer (höchste Priorität)
+            # Draw only first hit
             if candidates:
                 _tag, lines = candidates[0]
                 self._draw_tooltip(screen, mouse, lines, font=self._fonts.get(16))
 
-
         self._draw_xp_bar(screen)
-
-        # --- Hover Tooltips (XP) ---
-        if not getattr(self, "_intro_open", False) and not getattr(self, "_stats_open", False):
-            mx, my = pygame.mouse.get_pos()
-            r = getattr(self, "_xp_panel_rect", None)
-
-            if r is not None and r.width > 0 and r.height > 0 and r.collidepoint(mx, my):
-                xp = int(getattr(self.ctx.player, "xp", 0))
-                lvl, cur, need = xp_to_level(xp)
-
-                if lvl >= 10 or need <= 0:
-                    tip = [
-                        f"Level: {lvl} (MAX)",
-                        f"XP gesamt: {xp}",
-                    ]
-                else:
-                    remaining = max(0, int(need - cur))
-                    tip = [
-                        f"Level: {lvl}",
-                        f"XP gesamt: {xp}",
-                        f"Aktuell: {int(cur)} / {int(need)}",
-                        f"Bis Level {lvl + 1}: {remaining}",
-                    ]
-
-                self._draw_tooltip(screen, (mx, my), tip, font=self._fonts.get(16))
-
-        # --- Hover Tooltip (Masterleben) ---
-        if not getattr(self, "_intro_open", False) and not getattr(self, "_stats_open", False):
-            mx, my = pygame.mouse.get_pos()
-            r = getattr(self, "_ml_rect", None)
-            if r is not None and r.collidepoint(mx, my):
-                p = self.ctx.player
-                ml = int(getattr(p, "master_lives", 0))
-                ml_max = int(getattr(p, "master_lives_max", 3))
-
-                tip = [
-                    "MASTERLEBEN",
-                    f"{ml} / {ml_max}",
-                    "Im Kampf verlierst du Masterleben,",
-                    "wenn dein Schiff zerstört wird.",
-                    "Bei 0 Masterleben ist das Spiel verloren.",
-                ]
-                self._draw_tooltip(screen, (mx, my), tip, font=self._fonts.get(16))
                 
         self._render_stats_button(screen)
         if self._stats_open:
             self._render_stats_menu(screen)
-
-        # --- Hover Tooltip (Stats Button) ---
-        if not getattr(self, "_intro_open", False):
-            mx, my = pygame.mouse.get_pos()
-            r = getattr(self, "_stats_btn_rect", None)
-            if r is not None and r.collidepoint(mx, my):
-                self._draw_tooltip(screen, (mx, my), ["STATS"], font=self._fonts.get(16))
 
         # --- Goal Tracker (Hauptquest) ---
         money = int(getattr(self.ctx.player, "money", 0))
@@ -1336,8 +1463,10 @@ class WorldMapState:
         goal_font = self._fonts.get(18, bold=True)
         sub_font  = self._fonts.get(16)
 
-        title = goal_font.render("HAUPTZIEL", True, (245, 235, 210))
-        line  = sub_font.render(f"Erreiche {goal:,} Gold  |  Aktuell: {money:,}".replace(",", "."), True, (230, 230, 230))
+        title_txt = self.ctx.i18n.t("goal.title")
+        line_txt  = self.ctx.i18n.t("goal.line", goal=f"{goal:,}".replace(",", "."), money=f"{money:,}".replace(",", "."))
+        title = goal_font.render(title_txt, True, (245, 235, 210))
+        line  = sub_font.render(line_txt,  True, (230, 230, 230))
 
         pad = 12
         w = max(title.get_width(), line.get_width()) + pad * 2
@@ -1365,9 +1494,9 @@ class WorldMapState:
                     alpha = int(220 * k)
 
                 hint_font = self._fonts.get(16)
-                l1 = hint_font.render("STEUERUNG", True, (245, 235, 210))
-                l2 = hint_font.render("WASD / Pfeiltasten: Segeln", True, (230, 230, 230))
-                l3 = hint_font.render("E: Andocken   SPACE: Pause   TAB: Speed", True, (200, 200, 200))
+                l1 = hint_font.render(self.ctx.i18n.t("controls.title"), True, (245, 235, 210))
+                l2 = hint_font.render(self.ctx.i18n.t("controls.l2"), True, (230, 230, 230))
+                l3 = hint_font.render(self.ctx.i18n.t("controls.l3"), True, (200, 200, 200))
 
                 pad = 12
                 w = max(l1.get_width(), l2.get_width(), l3.get_width()) + pad * 2
@@ -1447,7 +1576,7 @@ class WorldMapState:
                 y += line_h
 
             # hint
-            hint = hint_font.render("Klicke oder drücke ENTER, um zu starten.", True, (190, 190, 190))
+            hint = hint_font.render(self.ctx.i18n.t("intro.hint"), True, (200, 200, 200))
             screen.blit(hint, (panel.x + 24, panel.bottom - 34))
 
 
@@ -1592,7 +1721,7 @@ class WorldMapState:
         # title (not clipped)
         x0 = panel.x + 18
         y_title = panel.y + 14
-        draw_text(title_font, "PLAYER STATS", x0, y_title)
+        draw_text(title_font, self.ctx.i18n.t("stats.menu.title"), x0, y_title)
 
         # gather data
         player = getattr(self.ctx, "player", None)
@@ -1649,33 +1778,37 @@ class WorldMapState:
 
             add_section(
                 lines,
-                "SHIP COMBAT",
+                self.ctx.i18n.t("stats.section.ship_combat"),
                 [
-                    ("Ship", str(getattr(shipdef, "name", getattr(shipdef, "id", "unknown")))),
-                    ("HP", f"{hp_cur}/{hp_max}"),
-                    ("Armor (Physical)", f"{aphys:.1f}"),
-                    ("Armor (Abyssal)", f"{aaby:.1f}"),
-                    ("Attack (Base)", f"{base_min}-{base_max} ({dtype})"),
-                    ("Attack (Effective)", f"{eff_min}-{eff_max}  [x{dmg_mult:.2f}]"),
-                    ("Penetration", f"{pen:.1f}"),
-                    ("Crit", f"{fmt_pct(cc)}  x{cm:.2f}"),
-                    ("Initiative", f"{ini:.2f}"),
+                    (self.ctx.i18n.t("stats.label.ship"), str(getattr(shipdef, "name", getattr(shipdef, "id", "unknown")))),
+                    (self.ctx.i18n.t("stats.label.hp"), f"{hp_cur}/{hp_max}"),
+                    (self.ctx.i18n.t("stats.label.armor_phys"), f"{aphys:.1f}"),
+                    (self.ctx.i18n.t("stats.label.armor_abyss"), f"{aaby:.1f}"),
+                    (self.ctx.i18n.t("stats.label.atk_base"), f"{base_min}-{base_max} ({dtype})"),
+                    (self.ctx.i18n.t("stats.label.atk_eff"), f"{eff_min}-{eff_max}  [x{dmg_mult:.2f}]"),
+                    (self.ctx.i18n.t("stats.label.pen"), f"{pen:.1f}"),
+                    (self.ctx.i18n.t("stats.label.crit"), f"{fmt_pct(cc)}  x{cm:.2f}"),
+                    (self.ctx.i18n.t("stats.label.initiative"), f"{ini:.2f}"),
                 ],
             )
         else:
-            add_section(lines, "SHIP COMBAT", [("Info", "No ship combat data found.")])
+            add_section(
+                lines,
+                self.ctx.i18n.t("stats.section.ship_combat"),
+                [(self.ctx.i18n.t("stats.label.info"), self.ctx.i18n.t("stats.msg.no_ship_data"))],
+            )
 
         # --- Player modifiers section ---
         add_section(
             lines,
             "PLAYER MODIFIERS",
             [
-                ("Cannon Damage", fmt_mult(getattr(ps, "cannon_damage_mult", 1.0) if ps else 1.0)),
-                ("Reload Speed", fmt_mult(getattr(ps, "reload_mult", 1.0) if ps else 1.0)),
-                ("Boarding Damage", fmt_mult(getattr(ps, "boarding_damage_mult", 1.0) if ps else 1.0)),
-                ("Repair Power", fmt_mult(getattr(ps, "repair_mult", 1.0) if ps else 1.0)),
-                ("Evade", fmt_mult(getattr(ps, "evade_mult", 1.0) if ps else 1.0)),
-                ("Flee", fmt_mult(getattr(ps, "flee_mult", 1.0) if ps else 1.0)),
+                (self.ctx.i18n.t("stats.mod.cannon_damage"), fmt_mult(getattr(ps, "cannon_damage_mult", 1.0) if ps else 1.0)),
+                (self.ctx.i18n.t("stats.mod.reload_speed"), fmt_mult(getattr(ps, "reload_mult", 1.0) if ps else 1.0)),
+                (self.ctx.i18n.t("stats.mod.boarding_damage"), fmt_mult(getattr(ps, "boarding_damage_mult", 1.0) if ps else 1.0)),
+                (self.ctx.i18n.t("stats.mod.repair_power"), fmt_mult(getattr(ps, "repair_mult", 1.0) if ps else 1.0)),
+                (self.ctx.i18n.t("stats.mod.evade"), fmt_mult(getattr(ps, "evade_mult", 1.0) if ps else 1.0)),
+                (self.ctx.i18n.t("stats.mod.flee"), fmt_mult(getattr(ps, "flee_mult", 1.0) if ps else 1.0)),
             ],
         )
 
@@ -1683,11 +1816,11 @@ class WorldMapState:
         if player is not None:
             add_section(
                 lines,
-                "PROGRESSION",
+                self.ctx.i18n.t("stats.section.progression"),
                 [
-                    ("Gold", str(getattr(player, "money", 0))),
-                    ("XP", str(getattr(player, "xp", 0))),
-                    ("Master Lives", f"{getattr(player, 'master_lives', 0)}/{getattr(player, 'master_lives_max', 0)}"),
+                    (self.ctx.i18n.t("stats.progress.gold"), str(getattr(player, "money", 0))),
+                    (self.ctx.i18n.t("stats.progress.xp"), str(getattr(player, "xp", 0))),
+                    (self.ctx.i18n.t("stats.progress.master_lives"), f"{getattr(player, 'master_lives', 0)}/{getattr(player, 'master_lives_max', 0)}"),
                 ],
             )
 
@@ -1738,7 +1871,7 @@ class WorldMapState:
             pygame.draw.rect(screen, (170, 170, 185), knob, border_radius=3)
 
         # hint (not clipped)
-        hint = "Mouse wheel to scroll • Click outside or ESC to close"
+        hint = self.ctx.i18n.t("stats.hint")
         draw_text(small_font, hint, x0, panel.bottom - 24, (180, 180, 190))
 
     def _get_animated_marker_surface(self, meter: float, t: float) -> pygame.Surface:

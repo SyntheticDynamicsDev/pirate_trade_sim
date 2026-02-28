@@ -15,19 +15,19 @@ class EconomyEngine:
     """
     # Need-Stufe -> Multiplikatoren
     BID_BY_NEED = {
-        "critical": 0.95,
-        "high": 0.85,
-        "normal": 0.75,
-        "low": 0.35,
-        "irrelevant": 0.10,
+        "critical": 0.92,
+        "high": 0.88,
+        "normal": 0.84,
+        "low": 0.78,
+        "irrelevant": 0.70,
     }
 
     ASK_BY_NEED = {
-        "critical": 1.20,
-        "high": 1.15,
-        "normal": 1.10,
-        "low": 1.50,
-        "irrelevant": 3.50,
+        "critical": 1.08,
+        "high": 1.10,
+        "normal": 1.12,
+        "low": 1.18,
+        "irrelevant": 1.30,
     }
     
     NEED_TARGET_MULT = {
@@ -48,7 +48,7 @@ class EconomyEngine:
         mult = ratio ** 0.85
 
         # etwas mehr Spielraum, damit Engpässe auch "wehtun"
-        mult = clamp(mult, 0.40, 3.50)
+        mult = clamp(mult, 0.55, 2.40)
 
         return base_price * mult
 

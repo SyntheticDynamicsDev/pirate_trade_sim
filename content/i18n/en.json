@@ -1,0 +1,298 @@
+{
+
+  "combat.hud.title": "COMBAT vs {enemy}   Speed: {speed}",
+  "combat.hud.speed.paused": "PAUSED",
+  "combat.hud.speed.mult": "{x:.0f}x",
+
+  "combat.hp.player": "Your HP",
+  "combat.hp.enemy": "Enemy HP",
+  "combat.morale.player": "YOUR",
+  "combat.morale.enemy": "ENEMY",
+
+  "combat.float.miss": "MISS",
+  "combat.float.escape_ok": "ESCAPE!",
+  "combat.float.escape_fail": "FAILED!",
+  "combat.float.cheer": "CHEER!",
+
+  "combat.ability.fire.name": "Fire",
+  "combat.ability.repair.name": "Repair",
+  "combat.ability.quick_repair.name": "Quick Repair",
+  "combat.ability.flee.name": "Flee",
+  "combat.ability.crew_cheer.name": "Crew Cheer",
+
+  "combat.tooltip.damage": "Damage: {lo}–{hi}",
+  "combat.tooltip.heal": "Heal: {heal}",
+  "combat.tooltip.cooldown": "Cooldown: {total}",
+  "combat.tooltip.cooldown_ready_in": "Cooldown: {total} (ready in {left})",
+
+  "combat.stance.header": "STANCE: {name}",
+  "combat.stance.offensive": "OFFENSIVE",
+  "combat.stance.balanced": "BALANCED",
+  "combat.stance.defensive": "DEFENSIVE",
+  "combat.stance.line2": "Damage: {dmg}   Hit: {hit}",
+  "combat.stance.line3": "Repair: {rep}   Flee: {flee}",
+  "combat.stance.note.offensive": "More damage/accuracy, worse repair/flee.",
+  "combat.stance.note.balanced": "No stance bonuses/penalties.",
+  "combat.stance.note.defensive": "Better repair/flee, less damage/accuracy.",
+  "combat.stance.footer": "Note: Final values are also affected by morale.",
+
+  "combat.result.victory": "VICTORY",
+  "combat.result.defeat": "DEFEAT",
+  "combat.result.escaped": "ESCAPED",
+  "combat.result.line.gold": "+{gold} Gold",
+  "combat.result.line.xp": "+{xp} XP",
+  "combat.result.line.cargo": "+{tons:.2f} t {good}",
+  "combat.result.defeat_msg": "You lost the battle.",
+  "combat.result.escaped_msg": "You fled successfully.",
+  "combat.result.returning": "Returning...",
+
+
+
+
+  "good.grain": "Grain",
+  "good.bread": "Hardtack",
+  "good.beans": "Beans",
+  "good.potatoe": "Potatoes",
+  "good.dried_fish": "Dried Fish",
+  "good.fish": "Fish",
+  "good.meat": "Meat",
+  "good.salted_meat": "Salted Meat",
+  "good.cheese": "Cheese",
+  "good.apple": "Apples",
+  "good.oil": "Oil",
+  "good.beer": "Beer",
+  "good.rum": "Rum",
+
+  "good.salt": "Salt",
+  "good.iron_ore": "Iron Ore",
+  "good.coal": "Coal",
+  "good.timber": "Timber",
+  "good.hemp": "Hemp",
+  "good.flax": "Flax",
+  "good.cotton": "Cotton",
+  "good.hides": "Hides",
+  "good.clay": "Clay",
+  "good.stone": "Stone",
+  "good.sulfur": "Sulfur",
+
+  "good.tools": "Tools",
+  "good.bricks": "Bricks",
+  "good.paper": "Paper",
+  "good.barrels": "Barrels",
+  "good.nails": "Nails",
+  "good.iron_ingots": "Iron Ingots",
+  "good.steel": "Steel",
+  "good.medicine": "Medicine",
+
+  "good.rope": "Rope",
+  "good.sailcloth": "Sailcloth",
+  "good.tar": "Tar",
+  "good.planks": "Planks",
+  "good.canvas": "Canvas",
+  "good.charts": "Sea Charts",
+
+  "good.painting": "Painting",
+  "good.wine": "Wine",
+  "good.silk": "Silk",
+  "good.jewelry": "Jewelry",
+  "good.porcelain": "Porcelain",
+  "good.spices": "Spices",
+  "good.tobacco": "Tobacco",
+  "good.coffee": "Coffee",
+  "good.tea": "Tea",
+  "good.sugar": "Sugar",
+  "good.perfume": "Perfume",
+  "good.books": "Books",
+
+
+
+
+  "city.hud": "Day: {day} | Money: {money}",
+  "city.msg.new_day": "A new day has begun.",
+
+  "city.table.market": "Market",
+  "city.table.sell": "Sell",
+  "city.table.buy": "Buy",
+  "city.table.you": "You",
+
+  "city.cargo.title": "Cargo Hold",
+  "city.cargo.free": "Free: {tons} t",
+
+  "city.cat.fav": "FAV",
+  "city.cat.food": "Food",
+  "city.cat.raw": "Raw",
+  "city.cat.craft": "Craft",
+  "city.cat.sea": "Sea",
+  "city.cat.luxury": "Luxury",
+
+  "city.trade.no_space": "No cargo space left.",
+  "city.trade.market_empty": "The market is empty.",
+  "city.trade.not_enough_money": "Not enough money to buy.",
+  "city.trade.no_goods_owned": "You have none of this good.",
+  "city.trade.sell_not_possible": "Sale not possible.",
+
+  "city.trade.bought": "Bought: {tons:.1f} t {good} for {gold:.0f}",
+  "city.trade.sold": "Sold: {tons:.1f} t {good} for {gold:.0f}",
+
+
+
+  "menu.start": "Start Game",
+  "menu.load": "Load Game",
+  "menu.options": "Options",
+  "menu.quit": "Quit",
+  "menu.no_save": "No save game found",
+  "menu.save_missing_meta": "Save exists, but metadata is missing.",
+
+  "options.title": "OPTIONS",
+  "options.row.volume": "Volume",
+  "options.hint.volume": "←/→ or drag with mouse",
+  "options.row.language": "Language",
+  "options.language.de": "Deutsch",
+  "options.language.en": "English",
+  "options.row.controls": "Controls (Hint)",
+
+  "options.controls.k1": "W / A / S / D",
+  "options.controls.v1": "Steer the ship",
+  "options.controls.k2": "Arrow Keys",
+  "options.controls.v2": "Steer the ship (alternative)",
+  "options.controls.k3": "E",
+  "options.controls.v3": "Dock / enter city (when available)",
+  "options.controls.k4": "SPACE",
+  "options.controls.v4": "Toggle pause",
+  "options.controls.k5": "TAB",
+  "options.controls.v5": "Cycle time speed",
+  "options.controls.k6": "ESC",
+  "options.controls.v6": "Pause menu / back",
+  "options.controls.k7": "Mouse Wheel",
+  "options.controls.v7": "Scrolling (menus/lists, if open)",
+
+  "ui.back": "Back",
+
+  "char.difficulty": "Difficulty",
+  "char.start_money": "Starting Money: {money}",
+  "char.ship_panel.title": "Starting Ship",
+  "char.ship.stat.capacity": "Capacity: {value}",
+  "char.ship.stat.speed": "Speed: {value}",
+  "char.ship.stat.hp": "HP: {value}",
+  "char.ship.stat.armor": "Armor: {value}",
+  "char.ship.stat.cannons": "Cannons: {value}",
+  "char.ship.stat.damage": "Damage: {value}",
+
+  "char.perks.title": "{name} – PERKS",
+  "char.perks.gold": "Gold: Start {money}",
+  "char.perks.bonus": "Bonus: {parts}",
+  "char.perks.trade": "Trade: Buy {buy}% | Sell {sell}%",
+  "char.perks.trade.none": "Trade: —",
+  "char.perks.attack": "Attack: {value}",
+  "char.perks.attack.none": "Attack: —",
+  "char.perks.defense": "Defense: {value}",
+  "char.perks.defense.none": "Defense: —",
+
+  "char.btn.back_fallback": "Back",
+
+
+  "char.title": "CHARACTER SELECT",
+  "char.subtitle": "Choose your starting character",
+  "char.btn.start": "Start Game",
+  "char.btn.back": "Back",
+  "char.hint": "Click a character to view details.",
+
+  "char.section.start": "START",
+  "char.section.stats": "STATS",
+  "char.section.perks": "PERKS",
+  "char.section.flaws": "DRAWSBACKS",
+
+  "char.label.start_ship": "Starting Ship",
+  "char.label.start_gold": "Starting Gold",
+  "char.label.start_cargo": "Starting Cargo",
+
+  "char.stat.trade": "Trade",
+  "char.stat.combat": "Combat",
+  "char.stat.sailing": "Sailing",
+  "char.stat.repair": "Repair",
+
+  "char.tip.trade": "Better prices and better deals.",
+  "char.tip.combat": "Stronger in combat and boarding.",
+  "char.tip.sailing": "Faster, better control, less drift.",
+  "char.tip.repair": "More efficient repairs, lower costs.",
+
+  "char.cargo.none": "None",
+
+  "char.name.0": "The Merchant",
+  "char.desc.0": "Start with more gold and better trading conditions, but weaker in combat.",
+  "char.name.1": "The Privateer",
+  "char.desc.1": "Strong in combat and boarding, but less suited for careful trade routes.",
+  "char.name.2": "The Navigator",
+  "char.desc.2": "Better control and speed at sea — ideal for risky routes.",
+  "char.name.3": "The Shipwright",
+  "char.desc.3": "Repairs are efficient and cheap, ideal for long expeditions.",
+
+
+
+
+
+
+  "stats.section.ship_combat": "SHIP COMBAT",
+  "stats.section.player_mods": "PLAYER MODIFIERS",
+  "stats.section.progression": "PROGRESSION",
+
+  "stats.msg.no_ship_data": "No ship combat data found.",
+  "stats.mod.cannon_damage": "Cannon Damage",
+  "stats.mod.reload_speed": "Reload Speed",
+  "stats.mod.boarding_damage": "Boarding Damage",
+  "stats.mod.repair_power": "Repair Power",
+  "stats.mod.evade": "Evade",
+  "stats.mod.flee": "Flee",
+  "stats.progress.gold": "Gold",
+  "stats.progress.xp": "XP",
+  "stats.progress.master_lives": "Master Lives",
+  "stats.hint": "Mouse wheel to scroll • Click outside or ESC to close",
+
+  "ui.dock_prompt": "{key} = Dock",
+  "hud.day_timescale": "Day {day}  TimeScale: {scale:.2f}  {paused}",
+  "hud.paused": "PAUSED",
+  "stats.menu.title": "PLAYER STATS",
+
+  "stats.label.ship": "Ship",
+  "stats.label.hp": "HP",
+  "stats.label.armor_phys": "Armor (Physical)",
+  "stats.label.armor_abyss": "Armor (Abyssal)",
+  "stats.label.atk_base": "Attack (Base)",
+  "stats.label.atk_eff": "Attack (Effective)",
+  "stats.label.pen": "Penetration",
+  "stats.label.crit": "Crit",
+  "stats.label.initiative": "Initiative",
+  "stats.label.info": "Info",
+
+  "intro.title": "YOUR FIRST CONTRACT",
+  "intro.p1": "You crawled out of the shadow of a sunken convoy. A torn map fragment and a half-empty rum mug. The Aurelio Trade League.",
+  "intro.p2": "They pay well — but they offer only ONE contract: earn your place back in the world.",
+  "intro.goal": "GOAL: Reach {gold} gold before pirates, storms, and debt catch you.",
+  "intro.tip": "TIP: Trade between ports, invest smart, avoid fights when you are weak.",
+  "intro.hint": "Click or press ENTER to start.",
+
+  "goal.title": "MAIN OBJECTIVE",
+  "goal.line": "Reach {goal} gold  |  Current: {money}",
+
+  "controls.title": "CONTROLS",
+  "controls.l2": "WASD / Arrow Keys: Sail",
+  "controls.l3": "E: Dock   SPACE: Pause   TAB: Speed",
+
+  "stats.title": "PLAYER STATS",
+    "tip.xp.level": "Level: {lvl}",
+  "tip.xp.level_max": "Level: {lvl} (MAX)",
+  "tip.xp.total": "Total XP: {xp}",
+  "tip.xp.progress": "Current: {cur} / {need}",
+  "tip.xp.to_next": "To level {next_lvl}: {remaining}",
+
+  "tip.ml.title": "MASTER LIVES",
+  "tip.ml.value": "{cur} / {max}",
+  "tip.ml.l1": "In combat you lose master lives",
+  "tip.ml.l2": "when your ship is destroyed.",
+  "tip.ml.l3": "At 0 master lives, the game is over.",
+
+  "tip.baro.title": "DANGER METER",
+  "tip.baro.l1": "Shows how risky your current situation is.",
+  "tip.baro.l2": "Higher value = higher chance",
+  "tip.baro.l3": "to trigger a fight/encounter."
+}
