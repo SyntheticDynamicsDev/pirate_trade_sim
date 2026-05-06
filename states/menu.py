@@ -34,14 +34,41 @@ class MainMenuState:
         self.font = self.fonts.get(40)
         self.small = self.fonts.get(14)
 
-        # --- Ensure i18n exists even before setup.py runs (menu/options need it) ---
-        if not hasattr(self.ctx, "lang"):
-            self.ctx.lang = "de"
+        # --- Load persisted user settings (lang/volume) BEFORE creating i18n ---
+        import settings
 
+        # Debug: zeigt dir beim Start, ob die Funktionen existieren
+        print("settings.py loaded from:", getattr(settings, "__file__", "<unknown>"))
+        print("has load_user_settings:", hasattr(settings, "load_user_settings"))
+        print("has apply_user_settings:", hasattr(settings, "apply_user_settings"))
+
+        load_user_settings = getattr(settings, "load_user_settings", None)
+        apply_user_settings = getattr(settings, "apply_user_settings", None)
+
+        if load_user_settings and apply_user_settings:
+            user = load_user_settings()
+            apply_user_settings(self.ctx, user)
+        else:
+            # Fallback: weiterlaufen, aber ohne Persistenz
+            # (so kommst du wenigstens wieder ins Menü)
+            pass
+
+        self.ctx.lang = user.get("lang", getattr(self.ctx, "lang", "de"))
+
+        # Ensure i18n exists even before setup.py runs (menu/options need it)
         if not hasattr(self.ctx, "i18n") or self.ctx.i18n is None:
             from core.i18n import I18N
             self.ctx.i18n = I18N(lang=self.ctx.lang, base_dir="content/i18n")
             self.ctx.i18n.load()
+        else:
+            # make sure i18n uses the persisted language
+            try:
+                self.ctx.i18n.set_lang(self.ctx.lang)
+            except Exception:
+                pass
+
+        # Apply remaining settings (volume etc.)
+        apply_user_settings(self.ctx, user)
 
         # --- Video Background (Frame Sequenz) ---
         self.bg = getattr(self.ctx, "menu_bg", None)

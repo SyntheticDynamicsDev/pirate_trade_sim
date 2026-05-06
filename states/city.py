@@ -317,7 +317,8 @@ class CityState:
                 # Tag vorspulen
                 if hasattr(self.ctx.clock, "force_next_day"):
                     self.ctx.clock.force_next_day(start_hour=8)
-
+ 
+ 
                 # Märkte/Needs sofort aktualisieren
                 from core.day_update import on_new_day
                 on_new_day(self.ctx)

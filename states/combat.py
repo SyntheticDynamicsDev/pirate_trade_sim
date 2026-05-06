@@ -1230,7 +1230,7 @@ class CombatState:
         self._shake_t = 0.0
         self._shake_amp = 0.0
 
-        self._t = 0.0  # local anim time
+        self._anim_t = 0.0  # local anim time (avoid clashing with _t() i18n helper)
 
         # background selection (by enemy tags if available)
         self._bg = self._load_combat_background()
@@ -1971,7 +1971,7 @@ class CombatState:
             self._hp_glow_t += float(dt)
 
         #bobbing
-        self._t = float(getattr(self, "_t", 0.0)) + float(dt)
+        self._anim_t = float(getattr(self, "_anim_t", 0.0)) + float(dt)
 
         # Wenn Ergebnis schon angezeigt wird, keine weiteren Turns/Enemy-Aktionen ausführen
         if getattr(self, "_result_showing", False):
@@ -2755,7 +2755,7 @@ class CombatState:
             screen.blit(surf, (cx - sw // 2, cy - sh // 2))
 
         # leichte "Bobbing"-Animation
-        t = float(getattr(self, "_t", 0.0))
+        t = float(getattr(self, "_anim_t", 0.0))
         bob = int(math.sin(t * 2.2 + (0.0 if not flip else 1.1)) * 3.0)
 
         if spr:

@@ -57,6 +57,8 @@ class OptionsState:
         except Exception:
             self._back_img = None
 
+        self._dirty_settings = False
+
     def on_exit(self) -> None:
         pass
 
@@ -66,9 +68,9 @@ class OptionsState:
     def handle_event(self, event) -> None:
         if event.type == pygame.KEYDOWN:
             if event.key in (pygame.K_ESCAPE,):
+                self._save_settings_if_dirty()
                 self.game.pop()
                 return
-
             if event.key in (pygame.K_UP, pygame.K_w):
                 self.selected_row = max(0, self.selected_row - 1)
                 return
@@ -109,6 +111,7 @@ class OptionsState:
 
             if back_rect.collidepoint(mx, my):
                 self._play_click()
+                self._save_settings_if_dirty()
                 self.game.pop()
                 return
 
@@ -333,6 +336,14 @@ class OptionsState:
                     i18n.load()
                 except Exception:
                     pass
+    
+        self._dirty_settings = True
+        from settings import save_user_settings
+        save_user_settings({
+            "lang": getattr(self.ctx, "lang", "de"),
+            "volume_pct": int(getattr(self, "volume_pct", getattr(self.ctx, "volume_pct", 55))),
+        })
+        self._dirty_settings = False  # language already persisted
 
     def _volume_rects(self, size: Tuple[int, int], panel: Optional[pygame.Rect] = None, top: Optional[int] = None):
         sw, sh = size
@@ -423,6 +434,7 @@ class OptionsState:
             return
         self.volume_pct = pct
         self._apply_volume_to_audio()
+        self._dirty_settings = True
 
     def _read_volume_pct(self) -> int:
         audio = getattr(self.ctx, "audio", None)
@@ -481,6 +493,16 @@ class OptionsState:
             pygame.mixer.music.set_volume(v)
         except Exception:
             pass
+
+    def _save_settings_if_dirty(self) -> None:
+        if not getattr(self, "_dirty_settings", False):
+            return
+        from settings import save_user_settings
+        save_user_settings({
+            "lang": getattr(self.ctx, "lang", "de"),
+            "volume_pct": int(getattr(self, "volume_pct", getattr(self.ctx, "volume_pct", 55))),
+        })
+        self._dirty_settings = False
 
     def _play_click(self) -> None:
         audio = getattr(self.ctx, "audio", None)
