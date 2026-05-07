@@ -168,6 +168,9 @@
   "options.row.language": "Sprache",
   "options.language.de": "Deutsch",
   "options.language.en": "English",
+  "options.row.fullscreen": "Vollbild",
+  "options.value.on": "Ein",
+  "options.value.off": "Aus",
   "options.row.controls": "Steuerung (Hinweis)",
 
   "options.controls.k1": "W / A / S / D",

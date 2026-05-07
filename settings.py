@@ -32,6 +32,7 @@ import json
 USER_SETTINGS_DEFAULTS = {
     "lang": "de",        # "de" or "en"
     "volume_pct": 70,    # 0..100
+    "fullscreen": False,
 }
 
 def _user_settings_path() -> str:
@@ -60,12 +61,13 @@ def load_user_settings() -> dict:
     except Exception:
         out["volume_pct"] = USER_SETTINGS_DEFAULTS["volume_pct"]
     out["volume_pct"] = max(0, min(100, out["volume_pct"]))
+    out["fullscreen"] = bool(out.get("fullscreen", USER_SETTINGS_DEFAULTS["fullscreen"]))
 
     return out
 
 def save_user_settings(data: dict) -> None:
     path = _user_settings_path()
-    merged = dict(USER_SETTINGS_DEFAULTS)
+    merged = load_user_settings()
     merged.update(data or {})
 
     if merged.get("lang") not in ("de", "en"):
@@ -76,6 +78,7 @@ def save_user_settings(data: dict) -> None:
     except Exception:
         merged["volume_pct"] = USER_SETTINGS_DEFAULTS["volume_pct"]
     merged["volume_pct"] = max(0, min(100, merged["volume_pct"]))
+    merged["fullscreen"] = bool(merged.get("fullscreen", USER_SETTINGS_DEFAULTS["fullscreen"]))
 
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
@@ -102,6 +105,7 @@ def apply_user_settings(ctx, data: dict | None = None) -> None:
     # Volume
     vol = int(data.get("volume_pct", 70))
     ctx.volume_pct = vol
+    ctx.fullscreen = bool(data.get("fullscreen", False))
     try:
         import pygame
         if pygame.mixer.get_init():

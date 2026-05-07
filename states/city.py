@@ -1154,13 +1154,7 @@ class CityState:
             # Kaufkosten
             cost = int(round(ask * chunk))
             if player.money < cost:
-                # ggf. nur Teilmenge kaufen
-                max_chunk = player.money / max(ask, 0.0001)
-                if max_chunk <= 0.1:
-                    break
-                chunk = min(chunk, max_chunk)
-                max_chunk = player.money / max(ask, 0.0001)
-
+                break
 
             # Transfer
             player.money -= cost
