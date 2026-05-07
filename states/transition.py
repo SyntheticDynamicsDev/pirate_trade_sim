@@ -178,11 +178,6 @@ class TransitionState:
             veil.fill((0, 0, 0, black_alpha))
             screen.blit(veil, (0, 0))
 
-        # Debug hint (remove later)
-        if getattr(self, "_wave", None) is None:
-            txt = pygame.font.SysFont("arial", 18).render("wave_edge.png NOT loaded", True, (255, 120, 120))
-            screen.blit(txt, (12, 12))
-
     def _draw_wave_edges(self, screen: pygame.Surface, pe: float) -> None:
         W, H = screen.get_size()
         t_global = float(getattr(self, "_t", 0.0))

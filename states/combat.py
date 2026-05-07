@@ -1321,8 +1321,6 @@ class CombatState:
         except Exception:
             self._ml_icon = None
 
-        # --- Turn delay (visual spacing between actions) ---
-        self._turn_delay = 0.0  # seconds remaining
         self._pending_action = None  # e.g. ("fire",) / ("repair",) / ("flee",)
         # --- Unit rect cache for precise VFX placement ---
         self._unit_rects = {"player": None, "enemy": None}
@@ -1703,10 +1701,12 @@ class CombatState:
         drops = []
         for entry in loot.cargo:
             if random.random() <= float(entry.chance):
-                tons = random.uniform(float(entry.min_tons), float(entry.max_tons))
+                min_tons = max(1, int(round(float(entry.min_tons))))
+                max_tons = max(min_tons, int(round(float(entry.max_tons))))
+                tons = random.randint(min_tons, max_tons)
                 # safety: only allow existing goods
                 if entry.good_id in self.ctx.content.goods:
-                    drops.append((entry.good_id, round(float(tons), 2)))
+                    drops.append((entry.good_id, int(tons)))
         return drops
 
     def _layout_ui(self, screen: pygame.Surface) -> None:
@@ -1856,7 +1856,7 @@ class CombatState:
         y = r.y + self._log_pad
 
         # Header
-        screen.blit(self.font.render("Combat Log", True, (230, 230, 230)), (x, y))
+        screen.blit(self.font.render(self._t("combat.log.title"), True, (230, 230, 230)), (x, y))
         y += self._log_header_h
 
         # Lines
@@ -1904,19 +1904,12 @@ class CombatState:
                 self.ctx.clock.paused = not self.ctx.clock.paused
             return
 
-        # Block combat actions while turn-delay is running (pause still allowed)
-        if float(getattr(self, "_turn_delay", 0.0)) > 0.0:
-            if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
-                self.ctx.clock.paused = not self.ctx.clock.paused
-            return
-
-
         #Buttons
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_SPACE:
                 self.ctx.clock.paused = not self.ctx.clock.paused
 
-        # --- Player actions are queued and executed after a 1s pre-delay ---
+        # --- Player actions are queued and executed on the next update tick ---
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             mx, my = event.pos
 
@@ -1924,8 +1917,8 @@ class CombatState:
             if getattr(self.engine, "turn_owner", "player") != "player":
                 return
 
-            # if a delay is running or something is already queued, ignore
-            if float(getattr(self, "_turn_delay", 0.0)) > 0.0 or getattr(self, "_pending_action", None) is not None:
+            # if something is already queued, ignore
+            if getattr(self, "_pending_action", None) is not None:
                 return
 
             mx, my = pygame.mouse.get_pos()
@@ -1936,9 +1929,6 @@ class CombatState:
                     break
 
 
-            # Start PRE-delay so you see who acts first before anything happens
-            ts = float(getattr(self.ctx.clock, "time_scale", 1.0)) or 1.0
-            self._turn_delay = 0.2
             return
 
 
@@ -1983,20 +1973,8 @@ class CombatState:
                     self._reveal = None
             return
 
-        # --- Turn delay gate: wait before allowing next action/turn to execute ---
-        if float(getattr(self, "_turn_delay", 0.0)) > 0.0:
-            self._turn_delay = max(0.0, float(self._turn_delay) - float(dt))
-
-            # Reveal weiter ticken lassen (sonst kann es wieder "kleben")
-            if getattr(self, "_reveal", None):
-                self._reveal["t"] = float(self._reveal.get("t", 0.0)) + float(dt)
-                dur = float(self._reveal.get("duration", 0.85))
-                if self._reveal["t"] >= dur:
-                    self._reveal = None
-            return
-
-        # --- Execute queued player action AFTER the pre-delay ---
-        if float(getattr(self, "_turn_delay", 0.0)) <= 0.0 and getattr(self, "_pending_action", None) is not None:
+        # --- Execute queued player action immediately on the next update tick ---
+        if getattr(self, "_pending_action", None) is not None:
             action = self._pending_action
             self._pending_action = None
 
@@ -2022,40 +2000,22 @@ class CombatState:
                     self.engine._advance_turn()
 
             # Drain events immediately so VFX/log shows right away
-            any_action_event = False
             while True:
                 ev = self.engine.pop_event()
                 if not ev:
                     break
                 self._handle_vfx_event(ev)
-                if ev.get("type") in ("fire", "repair", "board", "flee", "quick_repair", "crew_cheer"):
-                    any_action_event = True
-
-            # Start POST-delay after the executed action (spacing before the next one)
-            if acted or any_action_event:
-                ts = float(getattr(self.ctx.clock, "time_scale", 1.0)) or 1.0
-                self._turn_delay = 0.5 / max(0.25, ts)
 
             return
 
 
         self.engine.update(dt)
 
-        acted = False
         while True:
             ev = self.engine.pop_event()
             if not ev:
                 break
             self._handle_vfx_event(ev)
-
-            # Any of these events represent an action we want to space out
-            if ev.get("type") in ("fire", "repair", "board", "flee"):
-                acted = True
-
-        # After an action (usually enemy auto-turn), start delay before next turn
-        if acted and not getattr(self.engine, "finished", False):
-            ts = float(getattr(self.ctx.clock, "time_scale", 1.0)) or 1.0
-            self._turn_delay = 0.5 / max(0.25, ts)
 
         if self.engine.finished and not getattr(self, "_result_showing", False):
             # Payload/Rewards nur einmal bauen
@@ -2073,7 +2033,7 @@ class CombatState:
                 if xp:
                     lines.append(("xp", self._t("combat.result.line.xp", xp=xp)))
                 for gid, tons in cargo:
-                    lines.append(("cargo", self._t("combat.result.line.cargo", tons=float(tons), good=self._t_good(gid)), gid))
+                    lines.append(("cargo", self._t("combat.result.line.cargo", tons=int(tons), good=self._t_good(gid)), gid))
 
                 self._result_payload = {"title": self._t("combat.result.victory"), "lines": lines}
 
@@ -2897,11 +2857,15 @@ class CombatState:
         parts = []
         st = getattr(who, "status", {})
         if "leak" in st:
-            parts.append(f"LEAK {st['leak']['dur']:.1f}s")
+            parts.append(self._t("combat.status.leak", seconds=float(st["leak"]["dur"])))
         if "shaken" in st:
-            parts.append(f"SHAKEN {st['shaken']['dur']:.1f}s")
+            parts.append(self._t("combat.status.shaken", seconds=float(st["shaken"]["dur"])))
 
-        text = f"{label} Status: " + (", ".join(parts) if parts else "None")
+        text = self._t(
+            "combat.status.line",
+            label=label,
+            status=", ".join(parts) if parts else self._t("combat.status.none"),
+        )
         surf = self.font.render(text, True, (200, 200, 200))
         screen.blit(surf, (x, y))
 
@@ -2931,9 +2895,9 @@ class CombatState:
     def _draw_result_overlay(self, screen: pygame.Surface) -> None:
         payload = getattr(self, "_result_payload", None)
         if not payload:
-            payload = {"title": "RESULT", "lines": []}
+            payload = {"title": self._t("combat.result.fallback_title"), "lines": []}
 
-        title = payload.get("title", "RESULT")
+        title = payload.get("title", self._t("combat.result.fallback_title"))
         lines = payload.get("lines", [])
         if lines is None:
             lines = []
@@ -3159,7 +3123,7 @@ class CombatState:
         screen.blit(frame, (x, y))
 
         # --- morale text ---
-        txt = self.font.render(f"{label} MORALE: {morale}", True, (230, 230, 230))
+        txt = self.font.render(self._t("combat.morale.value", label=label, morale=morale), True, (230, 230, 230))
         screen.blit(txt, (x, y - self.font.get_height() - int(text_gap)))
 
 

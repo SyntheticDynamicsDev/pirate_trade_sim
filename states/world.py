@@ -1801,7 +1801,7 @@ class WorldMapState:
         # --- Player modifiers section ---
         add_section(
             lines,
-            "PLAYER MODIFIERS",
+            self.ctx.i18n.t("stats.section.player_mods"),
             [
                 (self.ctx.i18n.t("stats.mod.cannon_damage"), fmt_mult(getattr(ps, "cannon_damage_mult", 1.0) if ps else 1.0)),
                 (self.ctx.i18n.t("stats.mod.reload_speed"), fmt_mult(getattr(ps, "reload_mult", 1.0) if ps else 1.0)),
@@ -1846,7 +1846,13 @@ class WorldMapState:
             y += line_h
 
             # section spacing heuristic: after certain labels, add a gap
-            if key in ("Initiative", "Flee", "Master Lives", "Info"):
+            gap_after = {
+                self.ctx.i18n.t("stats.label.initiative"),
+                self.ctx.i18n.t("stats.mod.flee"),
+                self.ctx.i18n.t("stats.progress.master_lives"),
+                self.ctx.i18n.t("stats.label.info"),
+            }
+            if key in gap_after:
                 y += gap_h
 
         # compute content height for scrolling
@@ -2219,18 +2225,28 @@ class WorldMapState:
         x, y = pos
         world = self.ctx.world
         cur_map = self.ctx.current_map_id
+        from settings import DOCK_RADIUS_MULT, DOCK_RADIUS_BONUS
 
+        best_city = None
+        best_dist = None
         for c in world.cities:
             # WICHTIG: nur Cities der aktuellen Map berücksichtigen
             if getattr(c, "map_id", "world_01") != cur_map:
                 continue
 
             hx, hy = self._city_harbors.get(c.id, c.pos)
-            dx = hx - x
-            dy = hy - y
-            if (dx*dx + dy*dy) ** 0.5 <= c.harbor_radius:
-                return c
-        return None
+            cx, cy = c.pos
+
+            harbor_dist = ((hx - x) * (hx - x) + (hy - y) * (hy - y)) ** 0.5
+            city_dist = ((cx - x) * (cx - x) + (cy - y) * (cy - y)) ** 0.5
+            dist = min(harbor_dist, city_dist)
+            dock_r = c.harbor_radius * DOCK_RADIUS_MULT + DOCK_RADIUS_BONUS
+
+            if dist <= dock_r and (best_dist is None or dist < best_dist):
+                best_city = c
+                best_dist = dist
+
+        return best_city
 
 
     def _spawn_ship_safely(self) -> None:

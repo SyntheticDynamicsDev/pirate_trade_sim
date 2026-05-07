@@ -249,16 +249,17 @@ class MainMenuState:
 
         # Text
         f = self.fonts.get(22)
+        i18n = getattr(self.ctx, "i18n", None)
         if meta is not None:
             enc_pct = int(max(0.0, min(1.0, meta["enc_meter"])) * 100)
 
             lines = [
-                f"Tag {meta['day']}  |  {meta['time_str']}",
-                f"Level {meta['level']}  |  XP {meta['xp']}",
-                f"Gefahr {enc_pct}%",
+                i18n.t("save_preview.day", day=meta["day"], time=meta["time_str"]) if i18n else f"Day {meta['day']}  |  {meta['time_str']}",
+                i18n.t("save_preview.level", level=meta["level"], xp=meta["xp"]) if i18n else f"Level {meta['level']}  |  XP {meta['xp']}",
+                i18n.t("save_preview.danger", danger=enc_pct) if i18n else f"Danger {enc_pct}%",
             ]
         else:
-            lines = ["Save vorhanden, aber Metadaten fehlen."]
+            lines = [i18n.t("save_preview.missing_meta") if i18n else "Save exists, but metadata is missing."]
 
         for line in lines:
             surf = f.render(line, True, (240, 240, 240))
