@@ -20,9 +20,10 @@ class OptionsState:
     bg_snapshot: Optional[pygame.Surface] = None
 
     # ui
-    selected_row: int = 0  # 0 = volume, 1 = language, 2 = controls
+    selected_row: int = 0  # 0 = volume, 1 = language, 2 = fullscreen, 3 = controls
     volume_pct: int = 55   # 0..100
     dragging: bool = False
+    fullscreen: bool = False
 
     def on_enter(self) -> None:
         from core.ui_text import FontBank
@@ -37,6 +38,7 @@ class OptionsState:
 
         # init from audio if possible
         self.volume_pct = self._read_volume_pct()
+        self.fullscreen = bool(getattr(self.ctx, "fullscreen", False))
 
         # click sound path (optional)
         self._click_sfx = os.path.join("assets", "sfx", "ui_click.mp3")
@@ -57,6 +59,8 @@ class OptionsState:
         except Exception:
             self._back_img = None
 
+        self._dirty_settings = False
+
     def on_exit(self) -> None:
         pass
 
@@ -66,15 +70,15 @@ class OptionsState:
     def handle_event(self, event) -> None:
         if event.type == pygame.KEYDOWN:
             if event.key in (pygame.K_ESCAPE,):
+                self._save_settings_if_dirty()
                 self.game.pop()
                 return
-
             if event.key in (pygame.K_UP, pygame.K_w):
                 self.selected_row = max(0, self.selected_row - 1)
                 return
 
             if event.key in (pygame.K_DOWN, pygame.K_s):
-                self.selected_row = min(2, self.selected_row + 1)
+                self.selected_row = min(3, self.selected_row + 1)
                 return
 
             if event.key in (pygame.K_LEFT, pygame.K_a):
@@ -84,6 +88,9 @@ class OptionsState:
                 if self.selected_row == 1:
                     self._toggle_language()
                     return
+                if self.selected_row == 2:
+                    self._toggle_fullscreen()
+                    return
 
             if event.key in (pygame.K_RIGHT, pygame.K_d):
                 if self.selected_row == 0:
@@ -92,11 +99,18 @@ class OptionsState:
                 if self.selected_row == 1:
                     self._toggle_language()
                     return
+                if self.selected_row == 2:
+                    self._toggle_fullscreen()
+                    return
 
             if event.key in (pygame.K_RETURN, pygame.K_SPACE):
                 if self.selected_row == 1:
                     self._play_click()
                     self._toggle_language()
+                    return
+                if self.selected_row == 2:
+                    self._play_click()
+                    self._toggle_fullscreen()
                     return
                 self._play_click()
                 return
@@ -109,6 +123,7 @@ class OptionsState:
 
             if back_rect.collidepoint(mx, my):
                 self._play_click()
+                self._save_settings_if_dirty()
                 self.game.pop()
                 return
 
@@ -126,11 +141,18 @@ class OptionsState:
                 self._play_click()
                 self._toggle_language()
                 return
+
+            fullscreen_rect = self._fullscreen_header_rect(self.game.screen.get_size())
+            if fullscreen_rect.collidepoint(mx, my):
+                self.selected_row = 2
+                self._play_click()
+                self._toggle_fullscreen()
+                return
             
             # click on controls header selects row
             controls_rect = self._controls_header_rect(self.game.screen.get_size())
             if controls_rect.collidepoint(mx, my):
-                self.selected_row = 2
+                self.selected_row = 3
                 self._play_click()
                 return
 
@@ -181,7 +203,7 @@ class OptionsState:
 
         # panel
         panel_w = int(min(860, sw * 0.72))
-        panel_h = int(min(560, sh * 0.72))
+        panel_h = int(min(620, sh * 0.82))
         panel = pygame.Rect(0, 0, panel_w, panel_h)
         panel.center = (sw // 2, sh // 2)
 
@@ -263,14 +285,28 @@ class OptionsState:
         lang_value = self.body_font.render(self.ctx.i18n.t(lang_value_key), True, (240, 240, 240))
         screen.blit(lang_value, lang_value.get_rect(midright=(lang_header.right - 16, lang_header.centery)))
 
+        # --- Fullscreen row ---
+        y_fullscreen = y_lang + 48 + 18
+        fullscreen_header = pygame.Rect(panel.x + 22, y_fullscreen, panel.w - 44, 48)
+        self._draw_row_header(
+            screen,
+            rect=fullscreen_header,
+            text=self.ctx.i18n.t("options.row.fullscreen"),
+            selected=(self.selected_row == 2),
+        )
+
+        fullscreen_value_key = "options.value.on" if self.fullscreen else "options.value.off"
+        fullscreen_value = self.body_font.render(self.ctx.i18n.t(fullscreen_value_key), True, (240, 240, 240))
+        screen.blit(fullscreen_value, fullscreen_value.get_rect(midright=(fullscreen_header.right - 16, fullscreen_header.centery)))
+
         # --- Controls row ---
-        y1 = y_lang + 48 + 24
+        y1 = y_fullscreen + 48 + 18
         controls_header = pygame.Rect(panel.x + 22, y1, panel.w - 44, 48)
         self._draw_row_header(
             screen,
             rect=controls_header,
             text=self.ctx.i18n.t("options.row.controls"),
-            selected=(self.selected_row == 2),
+            selected=(self.selected_row == 3),
         )
 
         # controls text block
@@ -291,7 +327,7 @@ class OptionsState:
             vs = self.body_font.render(v, True, (240, 240, 240))
             screen.blit(ks, (tx, ty))
             screen.blit(vs, (tx + 220, ty))
-            ty += 30
+            ty += 25
 
         # back button
         back_rect = self._back_button_rect((sw, sh), panel=panel)
@@ -304,7 +340,7 @@ class OptionsState:
     def _language_header_rect(self, size: Tuple[int, int]) -> pygame.Rect:
         sw, sh = size
         panel_w = int(min(860, sw * 0.72))
-        panel_h = int(min(560, sh * 0.72))
+        panel_h = int(min(620, sh * 0.82))
         panel = pygame.Rect(0, 0, panel_w, panel_h)
         panel.center = (sw // 2, sh // 2)
 
@@ -312,6 +348,10 @@ class OptionsState:
         vol_track, _ = self._volume_rects((sw, sh), panel=panel, top=y0 + 56)
         y_lang = vol_track.bottom + 42
         return pygame.Rect(panel.x + 22, y_lang, panel.w - 44, 48)
+
+    def _fullscreen_header_rect(self, size: Tuple[int, int]) -> pygame.Rect:
+        lang_rect = self._language_header_rect(size)
+        return pygame.Rect(lang_rect.x, lang_rect.bottom + 18, lang_rect.w, lang_rect.h)
 
     def _toggle_language(self) -> None:
         cur = getattr(self.ctx, "lang", "de")
@@ -333,12 +373,59 @@ class OptionsState:
                     i18n.load()
                 except Exception:
                     pass
+    
+        self._dirty_settings = True
+        from settings import save_user_settings
+        save_user_settings({
+            "lang": getattr(self.ctx, "lang", "de"),
+            "volume_pct": int(getattr(self, "volume_pct", getattr(self.ctx, "volume_pct", 55))),
+            "fullscreen": bool(getattr(self.ctx, "fullscreen", False)),
+        })
+        self._dirty_settings = False  # language already persisted
+
+    def _toggle_fullscreen(self) -> None:
+        self._set_fullscreen(not bool(getattr(self, "fullscreen", False)))
+
+    def _set_fullscreen(self, enabled: bool) -> None:
+        from settings import SCREEN_W, SCREEN_H, save_user_settings
+
+        self.fullscreen = bool(enabled)
+        self.ctx.fullscreen = self.fullscreen
+
+        flags = pygame.SCALED
+        if self.fullscreen:
+            flags |= pygame.FULLSCREEN
+
+        try:
+            self.game.screen = pygame.display.set_mode((SCREEN_W, SCREEN_H), flags)
+            try:
+                icon = pygame.image.load(os.path.join("assets", "ui", "level.png"))
+                pygame.display.set_icon(icon)
+            except Exception:
+                pass
+            try:
+                cursor = pygame.image.load(os.path.join("assets", "mouse.png")).convert_alpha()
+                cursor = pygame.transform.smoothscale(cursor, (32, 38))
+                pygame.mouse.set_cursor((0, 0), cursor)
+            except Exception:
+                pass
+        except Exception:
+            self.fullscreen = not self.fullscreen
+            self.ctx.fullscreen = self.fullscreen
+            return
+
+        save_user_settings({
+            "lang": getattr(self.ctx, "lang", "de"),
+            "volume_pct": int(getattr(self, "volume_pct", getattr(self.ctx, "volume_pct", 55))),
+            "fullscreen": self.fullscreen,
+        })
+        self._dirty_settings = False
 
     def _volume_rects(self, size: Tuple[int, int], panel: Optional[pygame.Rect] = None, top: Optional[int] = None):
         sw, sh = size
         if panel is None:
             panel_w = int(min(860, sw * 0.72))
-            panel_h = int(min(560, sh * 0.72))
+            panel_h = int(min(620, sh * 0.82))
             panel = pygame.Rect(0, 0, panel_w, panel_h)
             panel.center = (sw // 2, sh // 2)
 
@@ -354,21 +441,18 @@ class OptionsState:
     def _controls_header_rect(self, size: Tuple[int, int]) -> pygame.Rect:
         sw, sh = size
         panel_w = int(min(860, sw * 0.72))
-        panel_h = int(min(560, sh * 0.72))
+        panel_h = int(min(620, sh * 0.82))
         panel = pygame.Rect(0, 0, panel_w, panel_h)
         panel.center = (sw // 2, sh // 2)
 
-        # volume block end -> approximate
-        y0 = panel.y + 90
-        vol_track, _ = self._volume_rects((sw, sh), panel=panel, top=y0 + 56)
-        y1 = vol_track.bottom + 58
-        return pygame.Rect(panel.x + 22, y1, panel.w - 44, 48)
+        fullscreen_rect = self._fullscreen_header_rect(size)
+        return pygame.Rect(panel.x + 22, fullscreen_rect.bottom + 18, panel.w - 44, 48)
 
     def _back_button_rect(self, size: Tuple[int, int], panel: Optional[pygame.Rect] = None) -> pygame.Rect:
         sw, sh = size
         if panel is None:
             panel_w = int(min(860, sw * 0.72))
-            panel_h = int(min(560, sh * 0.72))
+            panel_h = int(min(620, sh * 0.82))
             panel = pygame.Rect(0, 0, panel_w, panel_h)
             panel.center = (sw // 2, sh // 2)
 
@@ -423,6 +507,7 @@ class OptionsState:
             return
         self.volume_pct = pct
         self._apply_volume_to_audio()
+        self._dirty_settings = True
 
     def _read_volume_pct(self) -> int:
         audio = getattr(self.ctx, "audio", None)
@@ -481,6 +566,17 @@ class OptionsState:
             pygame.mixer.music.set_volume(v)
         except Exception:
             pass
+
+    def _save_settings_if_dirty(self) -> None:
+        if not getattr(self, "_dirty_settings", False):
+            return
+        from settings import save_user_settings
+        save_user_settings({
+            "lang": getattr(self.ctx, "lang", "de"),
+            "volume_pct": int(getattr(self, "volume_pct", getattr(self.ctx, "volume_pct", 55))),
+            "fullscreen": bool(getattr(self.ctx, "fullscreen", getattr(self, "fullscreen", False))),
+        })
+        self._dirty_settings = False
 
     def _play_click(self) -> None:
         audio = getattr(self.ctx, "audio", None)

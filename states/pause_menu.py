@@ -84,6 +84,12 @@ class PauseMenuState:
         if clock is not None:
             clock.paused = self._prev_paused
 
+    def _t(self, key: str, **kwargs) -> str:
+        i18n = getattr(self.ctx, "i18n", None)
+        if i18n is None:
+            return key.format(**kwargs) if kwargs else key
+        return i18n.t(key, **kwargs)
+
     def _build_layout(self, sw: int, sh: int) -> None:
         # Button-Schildbreite (ähnlich wie MainMenu, aber etwas kompakter)
         target_w = int(max(240, min(420, sw * 0.26)))
@@ -269,12 +275,12 @@ class PauseMenuState:
         if meta is not None:
             enc_pct = int(max(0.0, min(1.0, meta["enc_meter"])) * 100)
             lines = [
-                f"Tag {meta['day']}  |  {meta['time_str']}",
-                f"Level {meta['level']}  |  XP {meta['xp']}",
-                f"Gefahr {enc_pct}%",
+                self._t("save_preview.day", day=meta["day"], time=meta["time_str"]),
+                self._t("save_preview.level", level=meta["level"], xp=meta["xp"]),
+                self._t("save_preview.danger", danger=enc_pct),
             ]
         else:
-            lines = ["Save vorhanden, aber Metadaten fehlen."]
+            lines = [self._t("save_preview.missing_meta")]
 
         for line in lines:
             surf = f.render(line, True, (240, 240, 240))
@@ -413,7 +419,7 @@ class PauseMenuState:
                 from core.save_system import save_game
                 save_game(self.ctx)
 
-            self._toast = ("Spiel gespeichert.", pygame.time.get_ticks())
+            self._toast = (self._t("pause.toast.saved"), pygame.time.get_ticks())
             return
 
         if label == "sign_load":
@@ -424,7 +430,7 @@ class PauseMenuState:
                 from states.world import WorldMapState
                 self.game.replace(WorldMapState())
             else:
-                self._toast = ("Kein Savegame gefunden.", pygame.time.get_ticks())
+                self._toast = (self._t("pause.toast.no_save"), pygame.time.get_ticks())
             return
 
         if label == "sign_options":

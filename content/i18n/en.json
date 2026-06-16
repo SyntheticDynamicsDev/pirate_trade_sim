@@ -1,4 +1,6 @@
 {
+  "app.title": "Pirate Trade",
+
 
   "combat.hud.title": "COMBAT vs {enemy}   Speed: {speed}",
   "combat.hud.speed.paused": "PAUSED",
@@ -41,10 +43,18 @@
   "combat.result.escaped": "ESCAPED",
   "combat.result.line.gold": "+{gold} Gold",
   "combat.result.line.xp": "+{xp} XP",
-  "combat.result.line.cargo": "+{tons:.2f} t {good}",
+  "combat.result.line.cargo": "+{tons} t {good}",
   "combat.result.defeat_msg": "You lost the battle.",
   "combat.result.escaped_msg": "You fled successfully.",
   "combat.result.returning": "Returning...",
+  "combat.result.fallback_title": "RESULT",
+
+  "combat.log.title": "Combat Log",
+  "combat.status.line": "{label} Status: {status}",
+  "combat.status.none": "None",
+  "combat.status.leak": "LEAK {seconds:.1f}s",
+  "combat.status.shaken": "SHAKEN {seconds:.1f}s",
+  "combat.morale.value": "{label} MORALE: {morale}",
 
 
 
@@ -143,12 +153,23 @@
   "menu.no_save": "No save game found",
   "menu.save_missing_meta": "Save exists, but metadata is missing.",
 
+  "save_preview.day": "Day {day}  |  {time}",
+  "save_preview.level": "Level {level}  |  XP {xp}",
+  "save_preview.danger": "Danger {danger}%",
+  "save_preview.missing_meta": "Save exists, but metadata is missing.",
+
+  "pause.toast.saved": "Game saved.",
+  "pause.toast.no_save": "No save game found.",
+
   "options.title": "OPTIONS",
   "options.row.volume": "Volume",
   "options.hint.volume": "←/→ or drag with mouse",
   "options.row.language": "Language",
   "options.language.de": "Deutsch",
   "options.language.en": "English",
+  "options.row.fullscreen": "Fullscreen",
+  "options.value.on": "On",
+  "options.value.off": "Off",
   "options.row.controls": "Controls (Hint)",
 
   "options.controls.k1": "W / A / S / D",
@@ -294,5 +315,9 @@
   "tip.baro.title": "DANGER METER",
   "tip.baro.l1": "Shows how risky your current situation is.",
   "tip.baro.l2": "Higher value = higher chance",
-  "tip.baro.l3": "to trigger a fight/encounter."
+  "tip.baro.l3": "to trigger a fight/encounter.",
+
+  "victory.title": "GOAL REACHED!",
+  "victory.info": "You reached {money} gold.",
+  "victory.hint": "Click or press any key: back to the main menu"
 }

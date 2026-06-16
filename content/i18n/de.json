@@ -1,4 +1,6 @@
 {
+  "app.title": "Pirate Trade",
+
   "combat.hud.title": "KAMPF gegen {enemy}   Tempo: {speed}",
   "combat.hud.speed.paused": "PAUSE",
   "combat.hud.speed.mult": "{x:.0f}x",
@@ -40,10 +42,18 @@
   "combat.result.escaped": "ENTKOMMEN",
   "combat.result.line.gold": "+{gold} Gold",
   "combat.result.line.xp": "+{xp} XP",
-  "combat.result.line.cargo": "+{tons:.2f} t {good}",
+  "combat.result.line.cargo": "+{tons} t {good}",
   "combat.result.defeat_msg": "Du hast den Kampf verloren.",
   "combat.result.escaped_msg": "Du bist erfolgreich geflohen.",
   "combat.result.returning": "Zurück...",
+  "combat.result.fallback_title": "ERGEBNIS",
+
+  "combat.log.title": "Kampflog",
+  "combat.status.line": "{label} Status: {status}",
+  "combat.status.none": "Keine",
+  "combat.status.leak": "LECK {seconds:.1f}s",
+  "combat.status.shaken": "ERSCHÜTTERT {seconds:.1f}s",
+  "combat.morale.value": "{label} MORAL: {morale}",
 
 
 
@@ -144,12 +154,23 @@
   "menu.no_save": "Kein Savegame gefunden",
   "menu.save_missing_meta": "Save vorhanden, aber Metadaten fehlen.",
 
+  "save_preview.day": "Tag {day}  |  {time}",
+  "save_preview.level": "Level {level}  |  XP {xp}",
+  "save_preview.danger": "Gefahr {danger}%",
+  "save_preview.missing_meta": "Save vorhanden, aber Metadaten fehlen.",
+
+  "pause.toast.saved": "Spiel gespeichert.",
+  "pause.toast.no_save": "Kein Savegame gefunden.",
+
   "options.title": "OPTIONEN",
   "options.row.volume": "Lautstärke",
   "options.hint.volume": "←/→ oder ziehen mit Maus",
   "options.row.language": "Sprache",
   "options.language.de": "Deutsch",
   "options.language.en": "English",
+  "options.row.fullscreen": "Vollbild",
+  "options.value.on": "Ein",
+  "options.value.off": "Aus",
   "options.row.controls": "Steuerung (Hinweis)",
 
   "options.controls.k1": "W / A / S / D",
@@ -296,7 +317,11 @@
   "tip.baro.title": "GEFAHREN-BAROMETER",
   "tip.baro.l1": "Zeigt an, wie riskant deine aktuelle Lage ist.",
   "tip.baro.l2": "Hoher Wert = höhere Wahrscheinlichkeit,",
-  "tip.baro.l3": "in einen Kampf/Encounter zu geraten."
+  "tip.baro.l3": "in einen Kampf/Encounter zu geraten.",
+
+  "victory.title": "ZIEL ERREICHT!",
+  "victory.info": "Du hast {money} Gold erreicht.",
+  "victory.hint": "Klicke oder drücke eine Taste: zurück zum Hauptmenü"
 
 
 }

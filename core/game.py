@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import List, Optional
 from core.audio import AudioManager 
 from core.clock import GameClock
+from core.perf import PerfMonitor
 from core.state import State
 from core.run_config import RunConfig
 from dataclasses import dataclass, field
@@ -17,6 +18,7 @@ class GameContext:
     player = None
     markets = None
     economy = None
+    perf: PerfMonitor = field(default_factory=PerfMonitor)
     run_config: RunConfig = field(default_factory=RunConfig)
 
 
@@ -89,7 +91,7 @@ class Game:
     def state(self) -> State:
         return self.state_stack[-1]
 
-    def run_frame(self, real_dt: float) -> None:
+    def _run_frame_legacy(self, real_dt: float) -> None:
         # Event handling
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -128,4 +130,48 @@ class Game:
         self.screen.fill((12, 14, 18))
         self.state.render(self.screen)
 
+    def run_frame(self, real_dt: float) -> None:
+        perf = self.ctx.perf
+        perf.begin_frame(real_dt)
 
+        with perf.measure("events"):
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    raise SystemExit
+
+                if event.type == pygame.KEYDOWN and event.key == pygame.K_F3:
+                    perf.toggle()
+                    continue
+
+                if getattr(self.ctx, "audio", None) is not None:
+                    self.ctx.audio.handle_event(event)
+
+                self.state.handle_event(event)
+
+        with perf.measure("clock/day"):
+            days = self.ctx.clock.update(real_dt)
+            if days:
+                from core.day_update import on_new_day
+                for _ in range(int(days)):
+                    on_new_day(self.ctx)
+
+        with perf.measure("state.update"):
+            self.state.update(real_dt)
+
+        with perf.measure("win_check"):
+            from settings import WIN_GOLD_TARGET
+            if getattr(self.ctx, "player", None) is not None:
+                money = int(getattr(self.ctx.player, "money", 0))
+                if money >= WIN_GOLD_TARGET and not getattr(self.ctx, "_win_triggered", False):
+                    self.ctx._win_triggered = True
+                    from states.victory import VictoryState
+                    self.replace(VictoryState())
+
+        with perf.measure("state.render"):
+            self.screen.fill((12, 14, 18))
+            self.state.render(self.screen)
+
+        notes_fn = getattr(self.state, "get_perf_notes", None)
+        notes = notes_fn() if callable(notes_fn) else None
+        perf.finish_frame(type(self.state).__name__, notes=notes)
+        perf.draw(self.screen)

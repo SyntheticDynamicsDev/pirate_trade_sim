@@ -46,6 +46,12 @@ class VictoryState:
     def update(self, dt: float) -> None:
         pass
 
+    def _t(self, key: str, **kwargs) -> str:
+        i18n = getattr(self.ctx, "i18n", None)
+        if i18n is None:
+            return key.format(**kwargs) if kwargs else key
+        return i18n.t(key, **kwargs)
+
     def render(self, screen: pygame.Surface) -> None:
         w, h = screen.get_size()
 
@@ -57,9 +63,9 @@ class VictoryState:
         money = int(getattr(getattr(self.ctx, "player", None), "money", 0))
         money_txt = f"{money:,}".replace(",", ".")
 
-        title = render_text("ZIEL ERREICHT!", self.title_font, self._title_style)
-        info = render_text(f"Du hast {money_txt} Gold erreicht.", self.text_font, self._text_style)
-        hint = render_text("Klicke oder drücke eine Taste: zurück zum Hauptmenü", self.small_font, self._text_style)
+        title = render_text(self._t("victory.title"), self.title_font, self._title_style)
+        info = render_text(self._t("victory.info", money=money_txt), self.text_font, self._text_style)
+        hint = render_text(self._t("victory.hint"), self.small_font, self._text_style)
 
         screen.blit(title, ((w - title.get_width()) // 2, int(h * 0.28)))
         screen.blit(info, ((w - info.get_width()) // 2, int(h * 0.45)))

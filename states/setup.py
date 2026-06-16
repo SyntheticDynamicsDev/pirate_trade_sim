@@ -50,10 +50,12 @@ class NewGameSetupState:
         if lang not in ("de", "en"):
             lang = "de"
 
-        self.ctx.lang = lang
-        self.ctx.i18n = I18N(lang=self.ctx.lang)
-        self.ctx.i18n.load()
-        
+        if not hasattr(self.ctx, "i18n") or self.ctx.i18n is None:
+            self.ctx.i18n = I18N(lang=self.ctx.lang, base_dir="content/i18n")
+            self.ctx.i18n.load()
+        else:
+            self.ctx.i18n.set_lang(self.ctx.lang)
+                
         # --- Cities laden + ggf. auf Screen (1280x720) skalieren ---
         cities = []
 
@@ -173,3 +175,4 @@ class NewGameSetupState:
     def render(self, screen) -> None:
         # Kein Setup Screen mehr
         pass
+

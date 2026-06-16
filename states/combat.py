@@ -1230,7 +1230,7 @@ class CombatState:
         self._shake_t = 0.0
         self._shake_amp = 0.0
 
-        self._t = 0.0  # local anim time
+        self._anim_t = 0.0  # local anim time (avoid clashing with _t() i18n helper)
 
         # background selection (by enemy tags if available)
         self._bg = self._load_combat_background()
@@ -1303,6 +1303,10 @@ class CombatState:
                 self._reveal["duration"] = dur
             except Exception:
                 self._reveal = None
+        self._reveal_wave_left = None
+        self._reveal_wave_right = None
+        if self._reveal:
+            self._prepare_reveal_wave()
 
         # --- Name sign (empty wooden sign) ---
         try:
@@ -1321,8 +1325,6 @@ class CombatState:
         except Exception:
             self._ml_icon = None
 
-        # --- Turn delay (visual spacing between actions) ---
-        self._turn_delay = 0.0  # seconds remaining
         self._pending_action = None  # e.g. ("fire",) / ("repair",) / ("flee",)
         # --- Unit rect cache for precise VFX placement ---
         self._unit_rects = {"player": None, "enemy": None}
@@ -1635,6 +1637,9 @@ class CombatState:
                 free -= add
 
     def _leave_combat(self) -> None:
+        if getattr(self, "_exit_wave", None):
+            return
+
         # rewards nur 1x anwenden
         if not getattr(self, "_result_applied", False):
             try:
@@ -1644,18 +1649,7 @@ class CombatState:
                 pass
             self._result_applied = True
 
-        # Snapshot für Transition (ohne UI reicht)
-        try:
-            w, h = self.ctx.screen.get_size()
-            snap = pygame.Surface((w, h))
-            self._render_scene(snap)
-        except Exception:
-            snap = None
-
         # Wenn der Spieler verloren hat und Masterleben = 0 -> Losing Transition
-        from states.transition import TransitionState
-        # snapshot wird bereits gebaut -> snap
-
         p = self.ctx.player
         ml = int(getattr(p, "master_lives", 0))
 
@@ -1668,11 +1662,15 @@ class CombatState:
                 pass
 
             from states.lose import LoseState
+            try:
+                snap = self.ctx.screen.copy()
+            except Exception:
+                snap = None
             self.game.replace(LoseState(snapshot=snap))
             return
 
-
-        self.game.replace(TransitionState(kind="to_world", snapshot=snap, focus=None))
+        self._exit_wave = {"t": 0.0, "duration": 2.20}
+        self._prepare_exit_wave()
     # combat.py | class CombatState
 
     def _build_rewards_from_enemydef(self, ed) -> dict:
@@ -1703,10 +1701,12 @@ class CombatState:
         drops = []
         for entry in loot.cargo:
             if random.random() <= float(entry.chance):
-                tons = random.uniform(float(entry.min_tons), float(entry.max_tons))
+                min_tons = max(1, int(round(float(entry.min_tons))))
+                max_tons = max(min_tons, int(round(float(entry.max_tons))))
+                tons = random.randint(min_tons, max_tons)
                 # safety: only allow existing goods
                 if entry.good_id in self.ctx.content.goods:
-                    drops.append((entry.good_id, round(float(tons), 2)))
+                    drops.append((entry.good_id, int(tons)))
         return drops
 
     def _layout_ui(self, screen: pygame.Surface) -> None:
@@ -1856,7 +1856,7 @@ class CombatState:
         y = r.y + self._log_pad
 
         # Header
-        screen.blit(self.font.render("Combat Log", True, (230, 230, 230)), (x, y))
+        screen.blit(self.font.render(self._t("combat.log.title"), True, (230, 230, 230)), (x, y))
         y += self._log_header_h
 
         # Lines
@@ -1866,6 +1866,9 @@ class CombatState:
             y += self._log_line_h
 
     def handle_event(self, event) -> None:
+        if getattr(self, "_exit_wave", None):
+            return
+
         # --- Stance click ---
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             mx, my = event.pos
@@ -1904,19 +1907,12 @@ class CombatState:
                 self.ctx.clock.paused = not self.ctx.clock.paused
             return
 
-        # Block combat actions while turn-delay is running (pause still allowed)
-        if float(getattr(self, "_turn_delay", 0.0)) > 0.0:
-            if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
-                self.ctx.clock.paused = not self.ctx.clock.paused
-            return
-
-
         #Buttons
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_SPACE:
                 self.ctx.clock.paused = not self.ctx.clock.paused
 
-        # --- Player actions are queued and executed after a 1s pre-delay ---
+        # --- Player actions are queued and executed on the next update tick ---
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             mx, my = event.pos
 
@@ -1924,8 +1920,8 @@ class CombatState:
             if getattr(self.engine, "turn_owner", "player") != "player":
                 return
 
-            # if a delay is running or something is already queued, ignore
-            if float(getattr(self, "_turn_delay", 0.0)) > 0.0 or getattr(self, "_pending_action", None) is not None:
+            # if something is already queued, ignore
+            if getattr(self, "_pending_action", None) is not None:
                 return
 
             mx, my = pygame.mouse.get_pos()
@@ -1936,9 +1932,6 @@ class CombatState:
                     break
 
 
-            # Start PRE-delay so you see who acts first before anything happens
-            ts = float(getattr(self.ctx.clock, "time_scale", 1.0)) or 1.0
-            self._turn_delay = 0.2
             return
 
 
@@ -1971,10 +1964,17 @@ class CombatState:
             self._hp_glow_t += float(dt)
 
         #bobbing
-        self._t = float(getattr(self, "_t", 0.0)) + float(dt)
+        self._anim_t = float(getattr(self, "_anim_t", 0.0)) + float(dt)
 
         # Wenn Ergebnis schon angezeigt wird, keine weiteren Turns/Enemy-Aktionen ausführen
         if getattr(self, "_result_showing", False):
+            if getattr(self, "_exit_wave", None):
+                self._exit_wave["t"] = float(self._exit_wave.get("t", 0.0)) + float(dt)
+                dur = float(self._exit_wave.get("duration", 2.20))
+                if self._exit_wave["t"] >= dur:
+                    self._finish_exit_to_world()
+                return
+
             # Reveal weiter ticken lassen, damit es nicht schwarz bleibt
             if getattr(self, "_reveal", None):
                 self._reveal["t"] = float(self._reveal.get("t", 0.0)) + float(dt)
@@ -1983,20 +1983,8 @@ class CombatState:
                     self._reveal = None
             return
 
-        # --- Turn delay gate: wait before allowing next action/turn to execute ---
-        if float(getattr(self, "_turn_delay", 0.0)) > 0.0:
-            self._turn_delay = max(0.0, float(self._turn_delay) - float(dt))
-
-            # Reveal weiter ticken lassen (sonst kann es wieder "kleben")
-            if getattr(self, "_reveal", None):
-                self._reveal["t"] = float(self._reveal.get("t", 0.0)) + float(dt)
-                dur = float(self._reveal.get("duration", 0.85))
-                if self._reveal["t"] >= dur:
-                    self._reveal = None
-            return
-
-        # --- Execute queued player action AFTER the pre-delay ---
-        if float(getattr(self, "_turn_delay", 0.0)) <= 0.0 and getattr(self, "_pending_action", None) is not None:
+        # --- Execute queued player action immediately on the next update tick ---
+        if getattr(self, "_pending_action", None) is not None:
             action = self._pending_action
             self._pending_action = None
 
@@ -2022,40 +2010,22 @@ class CombatState:
                     self.engine._advance_turn()
 
             # Drain events immediately so VFX/log shows right away
-            any_action_event = False
             while True:
                 ev = self.engine.pop_event()
                 if not ev:
                     break
                 self._handle_vfx_event(ev)
-                if ev.get("type") in ("fire", "repair", "board", "flee", "quick_repair", "crew_cheer"):
-                    any_action_event = True
-
-            # Start POST-delay after the executed action (spacing before the next one)
-            if acted or any_action_event:
-                ts = float(getattr(self.ctx.clock, "time_scale", 1.0)) or 1.0
-                self._turn_delay = 0.5 / max(0.25, ts)
 
             return
 
 
         self.engine.update(dt)
 
-        acted = False
         while True:
             ev = self.engine.pop_event()
             if not ev:
                 break
             self._handle_vfx_event(ev)
-
-            # Any of these events represent an action we want to space out
-            if ev.get("type") in ("fire", "repair", "board", "flee"):
-                acted = True
-
-        # After an action (usually enemy auto-turn), start delay before next turn
-        if acted and not getattr(self.engine, "finished", False):
-            ts = float(getattr(self.ctx.clock, "time_scale", 1.0)) or 1.0
-            self._turn_delay = 0.5 / max(0.25, ts)
 
         if self.engine.finished and not getattr(self, "_result_showing", False):
             # Payload/Rewards nur einmal bauen
@@ -2073,7 +2043,7 @@ class CombatState:
                 if xp:
                     lines.append(("xp", self._t("combat.result.line.xp", xp=xp)))
                 for gid, tons in cargo:
-                    lines.append(("cargo", self._t("combat.result.line.cargo", tons=float(tons), good=self._t_good(gid)), gid))
+                    lines.append(("cargo", self._t("combat.result.line.cargo", tons=int(tons), good=self._t_good(gid)), gid))
 
                 self._result_payload = {"title": self._t("combat.result.victory"), "lines": lines}
 
@@ -2610,6 +2580,8 @@ class CombatState:
         # --- Result overlay on top ---
         if getattr(self, "_result_showing", False):
             self._draw_result_overlay(screen)
+            if getattr(self, "_exit_wave", None):
+                self._draw_exit_wave_overlay(screen)
             return
 
         # --- Hover Tooltip für Stances ---
@@ -2620,6 +2592,136 @@ class CombatState:
                     lines = self._stance_preview_lines(key)
                     self._draw_tooltip(screen, (mx, my), lines, font=self._fonts.get(16))
                     break
+
+    def _finish_exit_to_world(self) -> None:
+        try:
+            self.ctx.audio.stop_loop_sfx("enc_waves_level", fade_ms=150)
+        except Exception:
+            pass
+
+        from states.world import WorldMapState
+        self.game.replace(WorldMapState())
+
+    def _prepare_exit_wave(self) -> None:
+        self._exit_wave_layers = []
+        self._exit_wave_specs = [
+            (0.00, 0.55, 1.40, 0.25, 0.40),
+            (0.10, 0.74, 1.62, 0.50, 0.72),
+            (0.18, 0.93, 1.90, 0.82, 1.12),
+            (0.22, 1.00, 2.25, 1.00, 1.55),
+        ]
+        self._exit_wave_thickness = 160
+
+        wave_path = os.path.join("assets", "ui", "wave_edge.png")
+        try:
+            if not os.path.exists(wave_path):
+                return
+            img = pygame.image.load(wave_path).convert_alpha()
+            w, h = img.get_size()
+            if h != self._exit_wave_thickness:
+                new_w = max(1, int(w * (self._exit_wave_thickness / float(h))))
+                img = pygame.transform.smoothscale(img, (new_w, self._exit_wave_thickness)).convert_alpha()
+
+            src_w, src_h = img.get_size()
+            for (t0, t1, sc, a_mul, d_mul) in self._exit_wave_specs:
+                lw = int(src_w * sc)
+                lh = max(220, int(src_h * sc))
+                left = pygame.transform.smoothscale(img, (lw, lh)).convert_alpha()
+                right = pygame.transform.flip(left, True, False).convert_alpha()
+                self._exit_wave_layers.append({
+                    "t0": t0,
+                    "t1": t1,
+                    "scale": sc,
+                    "alpha_mult": a_mul,
+                    "depth_mult": d_mul,
+                    "left": left,
+                    "right": right,
+                    "w": lw,
+                    "h": lh,
+                })
+        except Exception:
+            self._exit_wave_layers = []
+
+    def _draw_exit_wave_overlay(self, screen: pygame.Surface) -> None:
+        exit_wave = getattr(self, "_exit_wave", None)
+        if not exit_wave:
+            return
+
+        W, H = screen.get_size()
+        t_global = float(exit_wave.get("t", 0.0))
+        dur = float(exit_wave.get("duration", 2.20))
+        p = max(0.0, min(1.0, t_global / max(0.001, dur)))
+
+        def ease(t: float) -> float:
+            t = max(0.0, min(1.0, t))
+            return t * t * (3.0 - 2.0 * t)
+
+        pe = ease(p)
+        base_thickness = int(getattr(self, "_exit_wave_thickness", 160) * 3.4)
+        cap = int(W * 0.73)
+        layers = getattr(self, "_exit_wave_layers", [])
+
+        if not layers:
+            for (t0, t1, _sc, a_mul, d_mul) in getattr(self, "_exit_wave_specs", []):
+                if pe <= t0:
+                    continue
+                lt = ease((pe - t0) / max(0.001, (t1 - t0)))
+                intrude = min(int(base_thickness * d_mul * lt), cap)
+                alpha = max(0, min(220, int(220 * a_mul * lt)))
+                if intrude > 0 and alpha > 0:
+                    s = pygame.Surface((W, H), pygame.SRCALPHA)
+                    pygame.draw.rect(s, (0, 0, 0, alpha), pygame.Rect(0, 0, intrude, H))
+                    pygame.draw.rect(s, (0, 0, 0, alpha), pygame.Rect(W - intrude, 0, intrude, H))
+                    screen.blit(s, (0, 0))
+            return
+
+        for layer in layers:
+            t0 = float(layer["t0"])
+            t1 = float(layer["t1"])
+            if pe <= t0:
+                continue
+
+            sc = float(layer["scale"])
+            a_mul = float(layer["alpha_mult"])
+            d_mul = float(layer["depth_mult"])
+            lt_base = ease((pe - t0) / max(0.001, (t1 - t0)))
+            lt_left = max(0.0, min(1.0, lt_base + 0.10))
+            lt_right = max(0.0, min(1.0, lt_base - 0.04))
+
+            intrude_l = min(int(base_thickness * d_mul * lt_left), cap)
+            intrude_r = min(int(base_thickness * d_mul * lt_right), cap)
+            if intrude_l <= 0 and intrude_r <= 0:
+                continue
+
+            lw = int(layer["w"])
+            lh = int(layer["h"])
+            drift_y = int(math.sin(t_global * 5.0 + sc * 1.1) * 10)
+            gap = int(lh * 0.9)
+            y0 = -int((t_global * 120) % max(1, gap)) + drift_y
+
+            if intrude_l > 0:
+                wave_l = layer["left"]
+                wave_l.set_alpha(int(255 * a_mul * lt_left))
+                prev_clip = screen.get_clip()
+                screen.set_clip(pygame.Rect(0, 0, intrude_l, H))
+                try:
+                    x = intrude_l - lw + int(math.sin(t_global * 18.0 + sc * 2.3) * 6)
+                    for i in range(3):
+                        screen.blit(wave_l, (x, y0 + i * gap))
+                finally:
+                    screen.set_clip(prev_clip)
+
+            if intrude_r > 0:
+                wave_r = layer["right"]
+                wave_r.set_alpha(int(255 * a_mul * lt_right))
+                prev_clip = screen.get_clip()
+                screen.set_clip(pygame.Rect(W - intrude_r, 0, intrude_r, H))
+                try:
+                    x = (W - intrude_r) - int(math.sin(t_global * 16.0 + sc * 1.7) * 6)
+                    for i in range(3):
+                        screen.blit(wave_r, (x, y0 + i * gap))
+                finally:
+                    screen.set_clip(prev_clip)
 
     def _draw_reveal_overlay(self, screen: pygame.Surface) -> None:
         if not getattr(self, "_reveal", None):
@@ -2636,17 +2738,11 @@ class CombatState:
         # waves reverse: start intruded -> retract
         intrude = int(140 * (1.0 - p))
 
-        # draw wave edges (same asset path if available)
-        wave_path = self._reveal.get("wave_path")
-        wave = None
-        try:
-            if wave_path and os.path.exists(wave_path):
-                wave = pygame.image.load(wave_path).convert_alpha()
-        except Exception:
-            wave = None
+        wave_l = getattr(self, "_reveal_wave_left", None)
+        wave_r = getattr(self, "_reveal_wave_right", None)
 
         if intrude > 0:
-            if wave is None:
+            if wave_l is None or wave_r is None:
                 s = pygame.Surface((W, H), pygame.SRCALPHA)
                 a = int(120 * (1.0 - p))
                 pygame.draw.rect(s, (0, 0, 0, a), pygame.Rect(0, 0, W, intrude))
@@ -2656,11 +2752,10 @@ class CombatState:
                 screen.blit(s, (0, 0))
             else:
                 alpha = int(220 * (1.0 - p))
-                wave2 = wave.copy()
-                wave2.set_alpha(alpha)
+                wave_l.set_alpha(alpha)
+                wave_r.set_alpha(alpha)
 
                 # left
-                wave_l = pygame.transform.rotate(wave2, 90)
                 x_left = -wave_l.get_width() + intrude
                 y = 0
                 while y < H:
@@ -2668,7 +2763,6 @@ class CombatState:
                     y += wave_l.get_height()
 
                 # right
-                wave_r = pygame.transform.rotate(wave2, -90)
                 x_right = W - intrude
                 y = 0
                 while y < H:
@@ -2679,6 +2773,17 @@ class CombatState:
             veil = pygame.Surface((W, H), pygame.SRCALPHA)
             veil.fill((0, 0, 0, black_alpha))
             screen.blit(veil, (0, 0))
+
+    def _prepare_reveal_wave(self) -> None:
+        wave_path = self._reveal.get("wave_path") if getattr(self, "_reveal", None) else None
+        try:
+            if wave_path and os.path.exists(wave_path):
+                wave = pygame.image.load(wave_path).convert_alpha()
+                self._reveal_wave_left = pygame.transform.rotate(wave, 90).convert_alpha()
+                self._reveal_wave_right = pygame.transform.rotate(wave, -90).convert_alpha()
+        except Exception:
+            self._reveal_wave_left = None
+            self._reveal_wave_right = None
 
     def _render_scene(self, screen: pygame.Surface) -> None:
         W, H = screen.get_size()
@@ -2755,7 +2860,7 @@ class CombatState:
             screen.blit(surf, (cx - sw // 2, cy - sh // 2))
 
         # leichte "Bobbing"-Animation
-        t = float(getattr(self, "_t", 0.0))
+        t = float(getattr(self, "_anim_t", 0.0))
         bob = int(math.sin(t * 2.2 + (0.0 if not flip else 1.1)) * 3.0)
 
         if spr:
@@ -2897,11 +3002,15 @@ class CombatState:
         parts = []
         st = getattr(who, "status", {})
         if "leak" in st:
-            parts.append(f"LEAK {st['leak']['dur']:.1f}s")
+            parts.append(self._t("combat.status.leak", seconds=float(st["leak"]["dur"])))
         if "shaken" in st:
-            parts.append(f"SHAKEN {st['shaken']['dur']:.1f}s")
+            parts.append(self._t("combat.status.shaken", seconds=float(st["shaken"]["dur"])))
 
-        text = f"{label} Status: " + (", ".join(parts) if parts else "None")
+        text = self._t(
+            "combat.status.line",
+            label=label,
+            status=", ".join(parts) if parts else self._t("combat.status.none"),
+        )
         surf = self.font.render(text, True, (200, 200, 200))
         screen.blit(surf, (x, y))
 
@@ -2931,9 +3040,9 @@ class CombatState:
     def _draw_result_overlay(self, screen: pygame.Surface) -> None:
         payload = getattr(self, "_result_payload", None)
         if not payload:
-            payload = {"title": "RESULT", "lines": []}
+            payload = {"title": self._t("combat.result.fallback_title"), "lines": []}
 
-        title = payload.get("title", "RESULT")
+        title = payload.get("title", self._t("combat.result.fallback_title"))
         lines = payload.get("lines", [])
         if lines is None:
             lines = []
@@ -3159,7 +3268,7 @@ class CombatState:
         screen.blit(frame, (x, y))
 
         # --- morale text ---
-        txt = self.font.render(f"{label} MORALE: {morale}", True, (230, 230, 230))
+        txt = self.font.render(self._t("combat.morale.value", label=label, morale=morale), True, (230, 230, 230))
         screen.blit(txt, (x, y - self.font.get_height() - int(text_gap)))
 
 
