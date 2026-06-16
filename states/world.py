@@ -159,9 +159,17 @@ class WorldMapState:
         self._cloud_cache = {}  # (img_index, w, h) -> scaled surface
 
         sw, sh = SCREEN_W, SCREEN_H
-        self._cloud_count = 12 if sw <= 1600 else 16  # oder 10/14
-        # config (tweakbar)
-        self._cloud_count = 18
+        self._cloud_count = 24
+        self._cloud_count_normal = 24
+        self._cloud_count_stress = self._cloud_count_normal * 2
+        self._cloud_stress_enabled = False
+        self._cloud_render_mode = "layer"
+        self._cloud_layer = None
+        self._cloud_layer_dirty = True
+        self._cloud_layer_last_t = -999.0
+        self._cloud_layer_fps = 12.0
+        self._cloud_layer_fps_options = [8.0, 12.0, 20.0, 30.0]
+        self._cloud_layer_fps_index = 1
         self._cloud_alpha_min = int(255 * 0.05)  # 5%
         self._cloud_alpha_max = int(255 * 0.20)  # 20%
         self._cloud_scale_min = 0.80
@@ -463,6 +471,16 @@ class WorldMapState:
             return
         
         if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_F4:
+                self._toggle_cloud_stress()
+                return
+            if event.key == pygame.K_F5:
+                self._toggle_cloud_render_mode()
+                return
+            if event.key == pygame.K_F6:
+                self._cycle_cloud_layer_fps()
+                return
+
             if event.key == pygame.K_SPACE:
                 # Pause toggle
                 self.ctx.clock.paused = not self.ctx.clock.paused
@@ -1001,6 +1019,7 @@ class WorldMapState:
         """Randomize cloud placement/variants every time we enter a map."""
         self._cloud_instances = []
         self._cloud_cache = {}
+        self._reset_cloud_layer()
 
         if not getattr(self, "_cloud_imgs_raw", None):
             return
@@ -1054,6 +1073,33 @@ class WorldMapState:
                 "bob_phase": float(bob_phase),
                 "surf": surf,
             })
+
+    def _toggle_cloud_stress(self) -> None:
+        self._cloud_stress_enabled = not bool(getattr(self, "_cloud_stress_enabled", False))
+        normal = int(getattr(self, "_cloud_count_normal", 18))
+        stress = int(getattr(self, "_cloud_count_stress", normal * 2))
+        self._cloud_count = stress if self._cloud_stress_enabled else normal
+        self._respawn_clouds()
+
+    def _reset_cloud_layer(self) -> None:
+        self._cloud_layer = None
+        self._cloud_layer_dirty = True
+        self._cloud_layer_last_t = -999.0
+
+    def _toggle_cloud_render_mode(self) -> None:
+        mode = str(getattr(self, "_cloud_render_mode", "layer"))
+        self._cloud_render_mode = "direct" if mode == "layer" else "layer"
+        self._reset_cloud_layer()
+
+    def _cycle_cloud_layer_fps(self) -> None:
+        options = list(getattr(self, "_cloud_layer_fps_options", [8.0, 12.0, 20.0, 30.0]))
+        if not options:
+            return
+        current = int(getattr(self, "_cloud_layer_fps_index", 0))
+        current = (current + 1) % len(options)
+        self._cloud_layer_fps_index = current
+        self._cloud_layer_fps = float(options[current])
+        self._cloud_layer_dirty = True
 
     def _draw_tooltip(self, screen, pos, lines, font=None):
         """Kleines Tooltip-Panel an Mausposition, clamped im Screen."""
@@ -1111,6 +1157,57 @@ class WorldMapState:
         lines.append(cur)
         return lines
 
+    def _draw_clouds_to(self, target) -> None:
+        t = float(getattr(self, "_ship_time", 0.0))
+        for c in self._cloud_instances:
+            surf = c.get("surf")
+            if not surf:
+                continue
+
+            y = float(c["y"]) + math.sin(t * float(c["bob_spd"]) + float(c["bob_phase"])) * float(c["bob_amp"])
+            target.blit(surf, (int(c["x"]), int(y)))
+
+    def _render_clouds_direct(self, screen) -> None:
+        self._draw_clouds_to(screen)
+
+    def _render_clouds_layer(self, screen) -> None:
+        size = (SCREEN_W, SCREEN_H)
+        layer = getattr(self, "_cloud_layer", None)
+        if layer is None or layer.get_size() != size:
+            layer = pygame.Surface(size, pygame.SRCALPHA).convert_alpha()
+            self._cloud_layer = layer
+            self._cloud_layer_dirty = True
+
+        now = float(getattr(self, "_ship_time", 0.0))
+        fps = max(1.0, float(getattr(self, "_cloud_layer_fps", 12.0)))
+        interval = 1.0 / fps
+
+        if bool(getattr(self, "_cloud_layer_dirty", True)) or now - float(getattr(self, "_cloud_layer_last_t", -999.0)) >= interval:
+            layer.fill((0, 0, 0, 0))
+            self._draw_clouds_to(layer)
+            self._cloud_layer_last_t = now
+            self._cloud_layer_dirty = False
+
+        screen.blit(layer, (0, 0), special_flags=getattr(pygame, "BLEND_ALPHA_SDL2", 0))
+
+    def _render_clouds(self, screen) -> None:
+        if str(getattr(self, "_cloud_render_mode", "layer")) == "direct":
+            self._render_clouds_direct(screen)
+        else:
+            self._render_clouds_layer(screen)
+
+    def get_perf_notes(self) -> dict[str, str]:
+        if not getattr(self, "_cloud_instances", None):
+            return {}
+        mode = "stress" if getattr(self, "_cloud_stress_enabled", False) else "normal"
+        render_mode = str(getattr(self, "_cloud_render_mode", "layer"))
+        fps = float(getattr(self, "_cloud_layer_fps", 12.0))
+        cloud_note = f"{len(self._cloud_instances)} ({mode}, F4)"
+        render_note = f"{render_mode} (F5)"
+        if render_mode == "layer":
+            render_note += f" {fps:.0f} fps (F6)"
+        return {"cloud.render": render_note, "clouds": cloud_note}
+
     def render(self, screen) -> None:
         world = self.ctx.world
         player = self.ctx.player
@@ -1119,14 +1216,12 @@ class WorldMapState:
 
         # --- Sky clouds (fast path: precomputed surfaces) ---
         if getattr(self, "_cloud_instances", None):
-            t = float(getattr(self, "_ship_time", 0.0))
-            for c in self._cloud_instances:
-                surf = c.get("surf")
-                if not surf:
-                    continue
-
-                y = float(c["y"]) + math.sin(t * float(c["bob_spd"]) + float(c["bob_phase"])) * float(c["bob_amp"])
-                screen.blit(surf, (int(c["x"]), int(y)))
+            perf = getattr(self.ctx, "perf", None)
+            if perf is not None and getattr(perf, "enabled", False):
+                with perf.measure("world.clouds"):
+                    self._render_clouds(screen)
+            else:
+                self._render_clouds(screen)
 
         # --- Transition arrows (show where the world continues) ---
         if getattr(self, "_arrow_frames", None) and getattr(self, "_transition_markers", None):

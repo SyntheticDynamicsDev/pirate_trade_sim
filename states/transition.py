@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Tuple
 import os
@@ -19,7 +19,7 @@ class TransitionState:
     game = None
     ctx = None
 
-    kind: str = "to_combat"  # "to_combat" | "to_world" (world kommt als nächstes)
+    kind: str = "to_combat"  # "to_combat" | "to_world" (world kommt als nÃ¤chstes)
     snapshot: Optional[pygame.Surface] = None
     focus: Optional[Tuple[float, float]] = None  # screen space focus (ship pos)
     enemy_id: Optional[str] = None
@@ -35,6 +35,13 @@ class TransitionState:
 
     def on_enter(self) -> None:
         self._t = 0.0
+        self._wave_layer_specs = [
+            (0.00, 0.55, 1.40, 0.25, 0.40),
+            (0.10, 0.74, 1.62, 0.50, 0.72),
+            (0.18, 0.93, 1.90, 0.82, 1.12),
+            (0.22, 1.00, 2.25, 1.00, 1.55),
+        ]
+        self._wave_layers = []
 
         # focus default = screen center
         if self.focus is None:
@@ -64,6 +71,7 @@ class TransitionState:
                     img = pygame.transform.smoothscale(img, (new_w, self._wave_thickness))
 
                 self._wave = img
+                self._wave_layers = self._build_wave_layers(img)
             else:
                 self._wave_thickness = 160
                 self._wave = None
@@ -71,14 +79,14 @@ class TransitionState:
             self._wave_thickness = 160
             self._wave = None
 
-        # Time-Scale sichern und während Transition einfrieren
+        # Time-Scale sichern und wÃ¤hrend Transition einfrieren
         self._prev_time_scale = getattr(self.ctx.clock, "time_scale", None)
         try:
             self.ctx.clock.time_scale = 0.0
         except Exception:
             pass
 
-                # Sicherheitsmaßnahme: Encounter-Wellenloop im Übergang ausblenden
+                # SicherheitsmaÃŸnahme: Encounter-Wellenloop im Ãœbergang ausblenden
         try:
             self.ctx.audio.stop_loop_sfx("enc_waves_level", fade_ms=250)
         except Exception:
@@ -86,7 +94,7 @@ class TransitionState:
 
     def on_exit(self) -> None:
         try:
-            # Clip sicher zurücksetzen, damit der nächste State normal rendert
+            # Clip sicher zurÃ¼cksetzen, damit der nÃ¤chste State normal rendert
             if hasattr(self.ctx, "screen") and self.ctx.screen:
                 self.ctx.screen.set_clip(None)
         except Exception:
@@ -130,6 +138,27 @@ class TransitionState:
             from states.world import WorldMapState
             self.game.replace(WorldMapState())
 
+    def _build_wave_layers(self, wave_src: pygame.Surface) -> list[dict]:
+        layers = []
+        src_w, src_h = wave_src.get_size()
+        for (t0, t1, sc, a_mul, d_mul) in getattr(self, "_wave_layer_specs", []):
+            lw = int(src_w * sc)
+            lh = max(220, int(src_h * sc))
+            left = pygame.transform.smoothscale(wave_src, (lw, lh)).convert_alpha()
+            right = pygame.transform.flip(left, True, False).convert_alpha()
+            layers.append({
+                "t0": t0,
+                "t1": t1,
+                "scale": sc,
+                "alpha_mult": a_mul,
+                "depth_mult": d_mul,
+                "left": left,
+                "right": right,
+                "w": lw,
+                "h": lh,
+            })
+        return layers
+
 
 
     def render(self, screen: pygame.Surface) -> None:
@@ -147,10 +176,16 @@ class TransitionState:
 
         # draw zoomed snapshot around focus
         fx, fy = self.focus
-        # scale snapshot
-        sw = max(1, int(W * z))
-        sh = max(1, int(H * z))
-        scaled = pygame.transform.smoothscale(snap, (sw, sh))
+        perf = getattr(self.ctx, "perf", None)
+        if perf is not None and getattr(perf, "enabled", False):
+            with perf.measure("transition.snapshot"):
+                sw = max(1, int(W * z))
+                sh = max(1, int(H * z))
+                scaled = pygame.transform.smoothscale(snap, (sw, sh))
+        else:
+            sw = max(1, int(W * z))
+            sh = max(1, int(H * z))
+            scaled = pygame.transform.smoothscale(snap, (sw, sh))
 
         # center focus point: keep (fx,fy) in place
         # compute offset: place scaled such that focus remains stable
@@ -163,7 +198,11 @@ class TransitionState:
         screen.blit(scaled, (ox, oy))
 
         # wave edges moving inward
-        self._draw_wave_edges(screen, pe)
+        if perf is not None and getattr(perf, "enabled", False):
+            with perf.measure("transition.wave_edges"):
+                self._draw_wave_edges(screen, pe)
+        else:
+            self._draw_wave_edges(screen, pe)
 
         # darken to black
         black_alpha = 0
@@ -186,20 +225,9 @@ class TransitionState:
             t = max(0.0, min(1.0, t))
             return t * t * (3.0 - 2.0 * t)
 
-        # Mehr "Wellen": 6 Layer statt 4 (mehr Volumen/Tiefe)
-        # (start, end, scale, alpha_mult, depth_mult)
-        layers = [
-            (0.00, 0.55, 1.40, 0.25, 0.40),
+        layers = getattr(self, "_wave_layer_specs", [])
 
-            (0.10, 0.74, 1.62, 0.50, 0.72),
-
-            (0.18, 0.93, 1.9, 0.82, 1.12),
-            # Ultimative Flut-Welle
-
-            (0.22, 1.00, 2.25, 1.00, 1.55),
-        ]
-
-        # Flood-Dicke: große Eindringtiefe, aber gecappt damit Mitte minimal frei bleibt
+        # Flood-Dicke: groÃŸe Eindringtiefe, aber gecappt damit Mitte minimal frei bleibt
         base_thickness = int(getattr(self, "_wave_thickness", 160) * 3.4)
         cap = int(W * 0.73)  # fast bis zur Mitte
 
@@ -230,12 +258,15 @@ class TransitionState:
                 screen.blit(s, (0, 0))
             return
 
-        wave_src = self._wave
-
-        for (t0, t1, sc, a_mul, d_mul) in layers:
+        for layer in getattr(self, "_wave_layers", []):
             # --- immer initialisieren ---
             intrude_l = 0
             intrude_r = 0
+            t0 = float(layer["t0"])
+            t1 = float(layer["t1"])
+            sc = float(layer["scale"])
+            a_mul = float(layer["alpha_mult"])
+            d_mul = float(layer["depth_mult"])
 
             if pe <= t0:
                 continue
@@ -260,21 +291,16 @@ class TransitionState:
             shake_x_r = int(math.sin(t_global * 16.0 + sc * 1.7) * 6)
             drift_y = int(math.sin(t_global * 5.0 + sc * 1.1) * 10)
 
-            # Skalierung (groß!)
-            src_w, src_h = wave_src.get_size()
-            lw = int(src_w * sc)
-            lh = max(220, int(src_h * sc))   # Mindesthöhe!
+            lw = int(layer["w"])
+            lh = int(layer["h"])
 
-            base = pygame.transform.smoothscale(wave_src, (lw, lh))
-
-            wave_l = base.copy()
+            wave_l = layer["left"]
             wave_l.set_alpha(alpha_l)
 
-            wave_r = pygame.transform.flip(base, True, False)
+            wave_r = layer["right"]
             wave_r.set_alpha(alpha_r)
 
             # =========================
-            # LEFT (Clip, wenige Tiles)
             # =========================
             if intrude_l > 0:
                 clip = pygame.Rect(0, 0, intrude_l, H)
